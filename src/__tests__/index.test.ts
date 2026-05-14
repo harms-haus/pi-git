@@ -157,7 +157,21 @@ describe("pi-git extension", () => {
 			(c: unknown[]) => c[0] === "tool_result",
 		)![1] as Mock;
 		const ctx = { cwd: "/tmp/repo" };
-		handler({}, ctx);
+		handler({ toolName: "write" }, ctx);
+
+		expect(debouncedRefreshGitStatus).toHaveBeenCalled();
+	});
+
+	it("tool_result triggers debounced refresh for delegate_to_subagents", () => {
+		(isWriteToolResult as unknown as Mock).mockReturnValue(false);
+		(isEditToolResult as unknown as Mock).mockReturnValue(false);
+		(isBashToolResult as unknown as Mock).mockReturnValue(false);
+
+		const handler = mockPi.on.mock.calls.find(
+			(c: unknown[]) => c[0] === "tool_result",
+		)![1] as Mock;
+		const ctx = { cwd: "/tmp/repo" };
+		handler({ toolName: "delegate_to_subagents" }, ctx);
 
 		expect(debouncedRefreshGitStatus).toHaveBeenCalled();
 	});
@@ -171,7 +185,7 @@ describe("pi-git extension", () => {
 			(c: unknown[]) => c[0] === "tool_result",
 		)![1] as Mock;
 		const ctx = { cwd: "/tmp/repo" };
-		handler({}, ctx);
+		handler({ toolName: "read" }, ctx);
 
 		expect(debouncedRefreshGitStatus).not.toHaveBeenCalled();
 	});

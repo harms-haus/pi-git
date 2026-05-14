@@ -10,6 +10,7 @@ import {
 	isBashToolResult,
 	isEditToolResult,
 	isWriteToolResult,
+	type ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { setApi, safeUpdateCtx, resetState } from "./state";
@@ -134,13 +135,23 @@ export default function (pi: ExtensionAPI): void {
 		resetState();
 	});
 
-	pi.on("tool_result", (event, ctx) => {
-		if (!safeUpdateCtx(ctx)) return;
-		if (
+	/** Tools that are not built-in but can mutate files. */
+	const EXT_MUTATING_TOOLS = new Set([
+		"delegate_to_subagents",
+	]);
+
+	function isFileMutatingToolResult(event: ToolResultEvent): boolean {
+		return (
 			isWriteToolResult(event) ||
 			isEditToolResult(event) ||
-			isBashToolResult(event)
-		) {
+			isBashToolResult(event) ||
+			EXT_MUTATING_TOOLS.has(event.toolName)
+		);
+	}
+
+	pi.on("tool_result", (event, ctx) => {
+		if (!safeUpdateCtx(ctx)) return;
+		if (isFileMutatingToolResult(event)) {
 			debouncedRefreshGitStatus();
 		}
 	});

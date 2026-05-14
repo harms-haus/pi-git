@@ -175,6 +175,7 @@ export function buildGitStatus(
 
 export let gitStatus: GitStatus | null = null;
 let gitRefreshInFlight = false;
+let gitRefreshPending = false;
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
 // ---------------------------------------------------------------------------
@@ -217,7 +218,11 @@ export function updateFooterLabel(): void {
  * Guarded against concurrent execution via gitRefreshInFlight.
  */
 export async function refreshGitStatus(): Promise<void> {
-  if (!currentCwd || gitRefreshInFlight) return;
+  if (!currentCwd) return;
+  if (gitRefreshInFlight) {
+    gitRefreshPending = true;
+    return;
+  }
 
   gitRefreshInFlight = true;
 
@@ -281,6 +286,11 @@ export async function refreshGitStatus(): Promise<void> {
     updateFooterLabel();
   } finally {
     gitRefreshInFlight = false;
+    // If another refresh was requested while this one was in flight, run it now
+    if (gitRefreshPending) {
+      gitRefreshPending = false;
+      refreshGitStatus();
+    }
   }
 }
 
@@ -303,6 +313,7 @@ export function debouncedRefreshGitStatus(): void {
  */
 export function clearGitState(): void {
   gitStatus = null;
+  gitRefreshPending = false;
   if (debounceTimer !== undefined) {
     clearTimeout(debounceTimer);
     debounceTimer = undefined;
