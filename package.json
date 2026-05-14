@@ -2,11 +2,15 @@
   "name": "pi-git",
   "version": "1.0.0",
   "description": "pi-coding-agent extension: rich git status in footer and agent end summary",
-  "keywords": ["pi-package"],
+  "keywords": [
+    "pi-package"
+  ],
   "type": "module",
   "main": "src/index.ts",
   "pi": {
-    "extensions": ["./src/index.ts"]
+    "extensions": [
+      "./src/index.ts"
+    ]
   },
   "scripts": {
     "lint": "eslint src/",
@@ -17,17 +21,20 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
     "@eslint/js": "^9.0.0",
+    "@types/node": "^22.0.0",
     "eslint": "^9.0.0",
-    "typescript-eslint": "^8.0.0",
     "prettier": "^3.0.0",
     "typescript": "^5.0.0",
+    "typescript-eslint": "^8.0.0",
     "vitest": "^3.0.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "simple-git": "^3.36.0"
+  }
 }

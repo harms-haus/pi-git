@@ -1,162 +1,101 @@
-import type { GitStatus, FileChange, PiGitStatusValue } from "./types";
-import { api, currentCtx, currentCwd } from "./state";
+import type { GitStatus, FileChange } from "./types";
+import type { StatusResult, DiffResult, FileStatusResult } from "simple-git";
+import { simpleGit } from "simple-git";
+import { currentCtx, currentCwd } from "./state";
 import { shortenPath } from "./format";
 
 // ---------------------------------------------------------------------------
-// Pure parsing functions (no side effects)
+// Pure mapping functions (no side effects)
 // ---------------------------------------------------------------------------
 
 /**
- * Parse `git diff --numstat HEAD` output.
- * Each line: `{insertions}\t{deletions}\t{filepath}`
- * Binary files: `-\t-\t{filepath}` → { insertions: -1, deletions: -1 }
+ * Map a simple-git FileStatusResult to our FileChange status.
+ * Uses the working_dir status first (unstaged changes), then index (staged).
+ * Handles M, A, D, R, C, T, and conflict codes.
  */
-export function parseGitNumstat(
-  output: string,
-): Map<string, { insertions: number; deletions: number }> {
-  const result = new Map<string, { insertions: number; deletions: number }>();
-  if (!output) return result;
+function mapFileStatus(f: FileStatusResult): FileChange["status"] {
+  const wd = f.working_dir;
+  const idx = f.index;
 
-  const lines = output.trim().split("\n");
-  for (const line of lines) {
-    if (!line) continue;
-    const parts = line.split("\t");
-    if (parts.length < 3) continue;
-    const [insStr, delStr, filepath] = parts;
-    const rawIns = parseInt(insStr, 10);
-    const rawDel = parseInt(delStr, 10);
-    const insertions = insStr === "-" || Number.isNaN(rawIns) ? -1 : rawIns;
-    const deletions = delStr === "-" || Number.isNaN(rawDel) ? -1 : rawDel;
-    result.set(filepath, { insertions, deletions });
-  }
-  return result;
+  // Untracked
+  if (wd === "?" || idx === "?") return "??";
+
+  // Deleted — check both index and working tree
+  if (wd === "D" || idx === "D") return "D";
+
+  // Renamed or Copied — treat as Added (the new file appears)
+  if (idx === "R" || idx === "C" || wd === "R" || wd === "C") return "A";
+
+  // Added — new file in index or working tree
+  if (idx === "A" || wd === "A") return "A";
+
+  // Everything else is Modified (M, T, U, conflict codes, etc.)
+  return "M";
 }
 
 /**
- * Parse `git diff --name-status HEAD` output.
- * Each line: `{status}\t{filepath}` where status is A, M, or D.
- */
-export function parseGitNameStatus(
-  output: string,
-): Map<string, "A" | "M" | "D"> {
-  const result = new Map<string, "A" | "M" | "D">();
-  if (!output) return result;
-
-  const lines = output.trim().split("\n");
-  for (const line of lines) {
-    if (!line) continue;
-    const parts = line.split("\t");
-    if (parts.length < 2) continue;
-    const [status, filepath] = parts;
-    if (status === "A" || status === "M" || status === "D") {
-      result.set(filepath, status);
-    }
-  }
-  return result;
-}
-
-/**
- * Parse `git status --porcelain` output.
- * Each line: `{XY} {filepath}` where XY is a 2-char status code.
- * Lines starting with `??` are untracked.
- */
-export function parseGitStatusPorcelain(
-  output: string,
-): Array<{ file: string; status: "A" | "M" | "D" | "??" }> {
-  const result: Array<{ file: string; status: "A" | "M" | "D" | "??" }> = [];
-  if (!output) return result;
-
-  const lines = output.trim().split("\n");
-  for (const line of lines) {
-    if (!line) continue;
-    // Format: XY filename — X is index, Y is working tree
-    // At least 3 chars: XY + space + filename
-    if (line.length < 4) continue;
-
-    const xy = line.slice(0, 2);
-    const filepath = line.slice(3);
-
-    let status: "A" | "M" | "D" | "??";
-    if (xy.startsWith("??")) {
-      status = "??";
-    } else {
-      const firstChar = xy[0];
-      if (firstChar === "A") {
-        status = "A";
-      } else if (firstChar === "D") {
-        status = "D";
-      } else {
-        status = "M";
-      }
-    }
-
-    result.push({ file: filepath, status });
-  }
-  return result;
-}
-
-/**
- * Merge all three git data sources into a single GitStatus object.
+ * Build a GitStatus from simple-git StatusResult and DiffResult.
  *
- * - Key files by filepath from numstat + nameStatus (tracked files).
- * - Overlay untracked files from porcelain (status "??", insertions/deletions = 0).
- * - For files in numstat but not in nameStatus, default status to "M".
- * - Binary files (insertions=-1) are excluded from totals but included in the files array.
+ * - StatusResult provides file list with statuses (including renames, copies, untracked).
+ * - DiffResult provides per-file insertions/deletions (for tracked, non-renamed files).
+ * - Untracked files get insertions/deletions = 0.
  */
 export function buildGitStatus(
-  numstat: Map<string, { insertions: number; deletions: number }>,
-  nameStatus: Map<string, "A" | "M" | "D">,
-  porcelain: Array<{ file: string; status: string }>,
-  branch: string,
+  status: StatusResult,
+  diff?: DiffResult,
 ): GitStatus {
-  const fileMap = new Map<string, FileChange>();
-
-  // Merge tracked files from numstat + nameStatus
-  for (const [filepath, stats] of numstat) {
-    const status = nameStatus.get(filepath) ?? "M";
-    fileMap.set(filepath, {
-      file: filepath,
-      status,
-      insertions: stats.insertions,
-      deletions: stats.deletions,
-    });
-  }
-
-  // Overlay untracked files from porcelain
-  for (const entry of porcelain) {
-    if (entry.status === "??" && !fileMap.has(entry.file)) {
-      fileMap.set(entry.file, {
-        file: entry.file,
-        status: "??",
-        insertions: 0,
-        deletions: 0,
-      });
+  // Build a lookup for diff stats by filepath
+  const diffMap = new Map<string, { insertions: number; deletions: number }>();
+  if (diff) {
+    for (const f of diff.files) {
+      if ("binary" in f && f.binary) {
+        diffMap.set(f.file, { insertions: -1, deletions: -1 });
+      } else {
+        diffMap.set(f.file, {
+          insertions: f.insertions,
+          deletions: f.deletions,
+        });
+      }
     }
   }
 
-  const files = Array.from(fileMap.values());
+  const files: FileChange[] = [];
   let totalInsertions = 0;
   let totalDeletions = 0;
   let addedCount = 0;
   let modifiedCount = 0;
   let deletedCount = 0;
 
-  for (const f of files) {
-    if (f.status === "A" || f.status === "??") {
+  for (const f of status.files) {
+    const fileStatus = mapFileStatus(f);
+    // Use f.path (the current name), or for renames f.from → old, f.path → new
+    const filepath = f.path;
+    const stats = diffMap.get(filepath);
+    const insertions = stats?.insertions ?? 0;
+    const deletions = stats?.deletions ?? 0;
+
+    files.push({
+      file: filepath,
+      status: fileStatus,
+      insertions,
+      deletions,
+    });
+
+    // Counting
+    if (fileStatus === "A" || fileStatus === "??") {
       addedCount++;
-    } else if (f.status === "M") {
+    } else if (fileStatus === "M") {
       modifiedCount++;
-    } else if (f.status === "D") {
+    } else if (fileStatus === "D") {
       deletedCount++;
     }
 
-    if (f.insertions !== -1) {
-      totalInsertions += f.insertions;
-    }
-    if (f.deletions !== -1) {
-      totalDeletions += f.deletions;
-    }
+    if (insertions !== -1) totalInsertions += insertions;
+    if (deletions !== -1) totalDeletions += deletions;
   }
+
+  const branch =
+    status.current ?? (status.detached ? "detached" : "unknown");
 
   return {
     branch,
@@ -196,7 +135,7 @@ export function updateFooterLabel(): void {
   }
 
   const cwd = currentCwd ?? "";
-  const value: PiGitStatusValue = {
+  const value = {
     cwd: shortenPath(cwd),
     branch: gitStatus.branch,
     insertions: gitStatus.totalInsertions,
@@ -214,7 +153,7 @@ export function updateFooterLabel(): void {
 // ---------------------------------------------------------------------------
 
 /**
- * Main refresh function: runs git commands, parses output, updates state.
+ * Main refresh function: uses simple-git to get status + diff, updates state.
  * Guarded against concurrent execution via gitRefreshInFlight.
  */
 export async function refreshGitStatus(): Promise<void> {
@@ -227,58 +166,25 @@ export async function refreshGitStatus(): Promise<void> {
   gitRefreshInFlight = true;
 
   try {
-    // Run four git commands in parallel for performance
-    const [numstatResult, nameStatusResult, porcelainResult, branchResult] =
-      await Promise.all([
-        api.exec("git", ["diff", "--numstat", "HEAD"], {
-          cwd: currentCwd,
-          timeout: 5000,
-        }),
-        api.exec("git", ["diff", "--name-status", "HEAD"], {
-          cwd: currentCwd,
-          timeout: 5000,
-        }),
-        api.exec("git", ["status", "--porcelain"], {
-          cwd: currentCwd,
-          timeout: 5000,
-        }),
-        api.exec("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-          cwd: currentCwd,
-          timeout: 3000,
-        }),
-      ]);
+    const git = simpleGit(currentCwd);
 
-    if (numstatResult.code !== 0) {
+    // Check if this is actually a git repo
+    const isRepo = await git.checkIsRepo();
+    if (!isRepo) {
       gitStatus = null;
       updateFooterLabel();
       return;
     }
 
-    if (nameStatusResult.code !== 0) {
-      gitStatus = null;
-      updateFooterLabel();
-      return;
-    }
+    // Run status and diffSummary in parallel
+    const [statusResult, diffResult] = await Promise.all([
+      git.status(),
+      git.diffSummary().catch(() => undefined) as Promise<
+        DiffResult | undefined
+      >,
+    ]);
 
-    if (porcelainResult.code !== 0) {
-      gitStatus = null;
-      updateFooterLabel();
-      return;
-    }
-
-    // Determine branch name
-    let branch = "detached";
-    if (branchResult.code === 0 && branchResult.stdout.trim()) {
-      branch = branchResult.stdout.trim();
-    }
-
-    // Parse all three outputs
-    const numstat = parseGitNumstat(numstatResult.stdout);
-    const nameStatus = parseGitNameStatus(nameStatusResult.stdout);
-    const porcelain = parseGitStatusPorcelain(porcelainResult.stdout);
-
-    // Merge into final status
-    gitStatus = buildGitStatus(numstat, nameStatus, porcelain, branch);
+    gitStatus = buildGitStatus(statusResult, diffResult);
     updateFooterLabel();
   } catch {
     // Unexpected error — clear status gracefully

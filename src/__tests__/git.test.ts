@@ -1,213 +1,107 @@
 import { describe, it, expect } from "vitest";
-import {
-  parseGitNumstat,
-  parseGitNameStatus,
-  parseGitStatusPorcelain,
-  buildGitStatus,
-} from "../git";
+import { buildGitStatus } from "../git";
+import type { StatusResult, FileStatusResult, DiffResult } from "simple-git";
 
 // ---------------------------------------------------------------------------
-// parseGitNumstat
+// Helpers to construct simple-git StatusResult / DiffResult mocks
 // ---------------------------------------------------------------------------
 
-describe("parseGitNumstat", () => {
-  it("parses standard output with multiple lines", () => {
-    const output = "42\t8\tsrc/foo.ts\n0\t0\tsrc/bar.ts";
-    const result = parseGitNumstat(output);
+function makeFileStatus(
+  path: string,
+  index: string,
+  working_dir: string,
+  from?: string,
+): FileStatusResult {
+  return { path, index, working_dir, ...(from ? { from } : {}) };
+}
 
-    expect(result).toBeInstanceOf(Map);
-    expect(result.size).toBe(2);
-    expect(result.get("src/foo.ts")).toEqual({ insertions: 42, deletions: 8 });
-    expect(result.get("src/bar.ts")).toEqual({ insertions: 0, deletions: 0 });
-  });
+function makeStatus(files: FileStatusResult[]): StatusResult {
+  return {
+    not_added: files
+      .filter((f) => f.working_dir === "?")
+      .map((f) => f.path),
+    conflicted: [],
+    created: files
+      .filter((f) => f.index === "A" || f.working_dir === "A")
+      .map((f) => f.path),
+    deleted: files
+      .filter((f) => f.index === "D" || f.working_dir === "D")
+      .map((f) => f.path),
+    modified: files
+      .filter((f) => f.index === "M" || f.working_dir === "M")
+      .map((f) => f.path),
+    renamed: files
+      .filter((f) => f.index === "R" || f.working_dir === "R")
+      .map((f) => ({ from: f.from ?? f.path, to: f.path })),
+    staged: [],
+    files,
+    ahead: 0,
+    behind: 0,
+    current: "main",
+    tracking: "origin/main",
+    detached: false,
+    isClean: () => files.length === 0,
+  };
+}
 
-  it("handles binary files with -\\t-", () => {
-    const output = "-\t-\timage.png";
-    const result = parseGitNumstat(output);
-
-    expect(result.size).toBe(1);
-    expect(result.get("image.png")).toEqual({ insertions: -1, deletions: -1 });
-  });
-
-  it("returns empty map for empty string", () => {
-    const result = parseGitNumstat("");
-    expect(result).toBeInstanceOf(Map);
-    expect(result.size).toBe(0);
-  });
-
-  it("handles single line", () => {
-    const output = "10\t5\tsrc/single.ts";
-    const result = parseGitNumstat(output);
-
-    expect(result.size).toBe(1);
-    expect(result.get("src/single.ts")).toEqual({
-      insertions: 10,
-      deletions: 5,
-    });
-  });
-
-  it("handles mixed binary and regular files", () => {
-    const output = "7\t3\tsrc/code.ts\n-\t-\tassets/logo.png\n1\t0\tsrc/util.ts";
-    const result = parseGitNumstat(output);
-
-    expect(result.size).toBe(3);
-    expect(result.get("src/code.ts")).toEqual({ insertions: 7, deletions: 3 });
-    expect(result.get("assets/logo.png")).toEqual({
-      insertions: -1,
-      deletions: -1,
-    });
-    expect(result.get("src/util.ts")).toEqual({ insertions: 1, deletions: 0 });
-  });
-
-  it("ignores lines with fewer than 3 tab-separated parts", () => {
-    const output = "onlyonepart\n42\tsrc/two-parts.ts\n\n10\t5\tsrc/valid.ts";
-    const result = parseGitNumstat(output);
-
-    expect(result.size).toBe(1);
-    expect(result.get("src/valid.ts")).toEqual({
-      insertions: 10,
-      deletions: 5,
-    });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// parseGitNameStatus
-// ---------------------------------------------------------------------------
-
-describe("parseGitNameStatus", () => {
-  it("parses A/M/D statuses", () => {
-    const output = "M\tsrc/foo.ts\nA\tsrc/new.ts\nD\tsrc/old.ts";
-    const result = parseGitNameStatus(output);
-
-    expect(result).toBeInstanceOf(Map);
-    expect(result.size).toBe(3);
-    expect(result.get("src/foo.ts")).toBe("M");
-    expect(result.get("src/new.ts")).toBe("A");
-    expect(result.get("src/old.ts")).toBe("D");
-  });
-
-  it("returns empty map for empty string", () => {
-    const result = parseGitNameStatus("");
-    expect(result).toBeInstanceOf(Map);
-    expect(result.size).toBe(0);
-  });
-
-  it("ignores unknown status letters (not A/M/D)", () => {
-    const output = "M\tsrc/foo.ts\nR\tsrc/renamed.ts\nC\tsrc/copied.ts\nA\tsrc/new.ts";
-    const result = parseGitNameStatus(output);
-
-    expect(result.size).toBe(2);
-    expect(result.get("src/foo.ts")).toBe("M");
-    expect(result.get("src/new.ts")).toBe("A");
-    expect(result.has("src/renamed.ts")).toBe(false);
-    expect(result.has("src/copied.ts")).toBe(false);
-  });
-
-  it("ignores lines with fewer than 2 tab-separated parts", () => {
-    const output = "M\tsrc/good.ts\njust_a_word\n\nA\tsrc/another.ts";
-    const result = parseGitNameStatus(output);
-
-    expect(result.size).toBe(2);
-    expect(result.get("src/good.ts")).toBe("M");
-    expect(result.get("src/another.ts")).toBe("A");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// parseGitStatusPorcelain
-// ---------------------------------------------------------------------------
-
-describe("parseGitStatusPorcelain", () => {
-  it("parses tracked files", () => {
-    // Real porcelain format: XY + space + filename (2-char status code)
-    const output = "M  src/foo.ts\nA  src/new.ts\nD  src/old.ts";
-    const result = parseGitStatusPorcelain(output);
-
-    expect(result).toHaveLength(3);
-    expect(result[0]).toEqual({ file: "src/foo.ts", status: "M" });
-    expect(result[1]).toEqual({ file: "src/new.ts", status: "A" });
-    expect(result[2]).toEqual({ file: "src/old.ts", status: "D" });
-  });
-
-  it("parses untracked files", () => {
-    const output = "?? untracked.txt";
-    const result = parseGitStatusPorcelain(output);
-
-    expect(result).toHaveLength(1);
-    expect(result[0]).toEqual({ file: "untracked.txt", status: "??" });
-  });
-
-  it("returns empty array for empty string", () => {
-    const result = parseGitStatusPorcelain("");
-    expect(result).toEqual([]);
-  });
-
-  it("handles mixed tracked and untracked", () => {
-    // Real porcelain format: XY + space + filename
-    const output = "M  src/foo.ts\n?? newfile.txt\nA  src/added.ts\nD  src/removed.ts\n?? other.txt";
-    const result = parseGitStatusPorcelain(output);
-
-    expect(result).toHaveLength(5);
-    expect(result[0]).toEqual({ file: "src/foo.ts", status: "M" });
-    expect(result[1]).toEqual({ file: "newfile.txt", status: "??" });
-    expect(result[2]).toEqual({ file: "src/added.ts", status: "A" });
-    expect(result[3]).toEqual({ file: "src/removed.ts", status: "D" });
-    expect(result[4]).toEqual({ file: "other.txt", status: "??" });
-  });
-
-  it("ignores lines shorter than 4 chars", () => {
-    const output = "M \nAB\n?? valid.txt";
-    const result = parseGitStatusPorcelain(output);
-
-    expect(result).toHaveLength(1);
-    expect(result[0]).toEqual({ file: "valid.txt", status: "??" });
-  });
-});
+function makeDiff(
+  files: Array<{
+    file: string;
+    insertions: number;
+    deletions: number;
+    binary?: boolean;
+  }>,
+): DiffResult {
+  return {
+    changed: files.length,
+    insertions: files.reduce((s, f) => s + f.insertions, 0),
+    deletions: files.reduce((s, f) => s + f.deletions, 0),
+    files: files.map((f) => ({
+      file: f.file,
+      changes: f.insertions + f.deletions,
+      insertions: f.insertions,
+      deletions: f.deletions,
+      binary: (f.binary ?? false) as false,
+    })),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // buildGitStatus
 // ---------------------------------------------------------------------------
 
 describe("buildGitStatus", () => {
-  it("merges all three data sources correctly", () => {
-    const numstat = new Map<string, { insertions: number; deletions: number }>();
-    numstat.set("src/foo.ts", { insertions: 42, deletions: 8 });
-    numstat.set("src/bar.ts", { insertions: 10, deletions: 5 });
+  it("handles modified files from status + diff", () => {
+    const status = makeStatus([
+      makeFileStatus("src/foo.ts", "M", " "),
+      makeFileStatus("src/bar.ts", " ", "M"),
+    ]);
+    const diff = makeDiff([
+      { file: "src/foo.ts", insertions: 42, deletions: 8 },
+      { file: "src/bar.ts", insertions: 10, deletions: 5 },
+    ]);
 
-    const nameStatus = new Map<string, "A" | "M" | "D">();
-    nameStatus.set("src/foo.ts", "M");
-    nameStatus.set("src/bar.ts", "A");
-
-    const porcelain = [
-      { file: "src/foo.ts", status: "M" },
-      { file: "src/bar.ts", status: "A" },
-    ];
-
-    const result = buildGitStatus(numstat, nameStatus, porcelain, "main");
+    const result = buildGitStatus(status, diff);
 
     expect(result.branch).toBe("main");
     expect(result.totalInsertions).toBe(52);
     expect(result.totalDeletions).toBe(13);
-    expect(result.addedCount).toBe(1);
-    expect(result.modifiedCount).toBe(1);
+    expect(result.modifiedCount).toBe(2);
+    expect(result.addedCount).toBe(0);
     expect(result.deletedCount).toBe(0);
     expect(result.files).toHaveLength(2);
   });
 
-  it("handles untracked files from porcelain only (not in numstat/nameStatus)", () => {
-    const numstat = new Map<string, { insertions: number; deletions: number }>();
-    numstat.set("src/tracked.ts", { insertions: 5, deletions: 2 });
+  it("handles untracked files (no diff stats)", () => {
+    const status = makeStatus([
+      makeFileStatus("src/tracked.ts", " ", "M"),
+      makeFileStatus("untracked.txt", "?", "?"),
+    ]);
+    const diff = makeDiff([
+      { file: "src/tracked.ts", insertions: 5, deletions: 2 },
+    ]);
 
-    const nameStatus = new Map<string, "A" | "M" | "D">();
-    nameStatus.set("src/tracked.ts", "M");
-
-    const porcelain = [
-      { file: "src/tracked.ts", status: "M" },
-      { file: "untracked.txt", status: "??" },
-    ];
-
-    const result = buildGitStatus(numstat, nameStatus, porcelain, "develop");
+    const result = buildGitStatus(status, diff);
 
     expect(result.files).toHaveLength(2);
     const untracked = result.files.find((f) => f.file === "untracked.txt");
@@ -217,91 +111,124 @@ describe("buildGitStatus", () => {
       insertions: 0,
       deletions: 0,
     });
-    expect(result.totalInsertions).toBe(5);
-    expect(result.totalDeletions).toBe(2);
     expect(result.addedCount).toBe(1); // ?? counts as added
     expect(result.modifiedCount).toBe(1);
   });
 
-  it("excludes binary files from totals but includes them in files array", () => {
-    const numstat = new Map<string, { insertions: number; deletions: number }>();
-    numstat.set("src/code.ts", { insertions: 10, deletions: 3 });
-    numstat.set("assets/image.png", { insertions: -1, deletions: -1 });
+  it("handles added files", () => {
+    const status = makeStatus([
+      makeFileStatus("src/new.ts", "A", " "),
+    ]);
+    const diff = makeDiff([
+      { file: "src/new.ts", insertions: 20, deletions: 0 },
+    ]);
 
-    const nameStatus = new Map<string, "A" | "M" | "D">();
-    nameStatus.set("src/code.ts", "M");
-    nameStatus.set("assets/image.png", "M");
+    const result = buildGitStatus(status, diff);
 
-    const porcelain: Array<{ file: string; status: string }> = [];
-
-    const result = buildGitStatus(numstat, nameStatus, porcelain, "main");
-
-    expect(result.files).toHaveLength(2);
-    // Binary file should be in the files array
-    const binary = result.files.find((f) => f.file === "assets/image.png");
-    expect(binary).toEqual({
-      file: "assets/image.png",
-      status: "M",
-      insertions: -1,
-      deletions: -1,
-    });
-    // Totals should only count the non-binary file
-    expect(result.totalInsertions).toBe(10);
-    expect(result.totalDeletions).toBe(3);
+    expect(result.addedCount).toBe(1);
+    expect(result.files[0].status).toBe("A");
+    expect(result.files[0].insertions).toBe(20);
   });
 
-  it("defaults status to M for files in numstat but not in nameStatus", () => {
-    const numstat = new Map<string, { insertions: number; deletions: number }>();
-    numstat.set("src/orphan.ts", { insertions: 7, deletions: 1 });
+  it("handles deleted files", () => {
+    const status = makeStatus([
+      makeFileStatus("src/old.ts", "D", " "),
+    ]);
 
-    const nameStatus = new Map<string, "A" | "M" | "D">();
+    const result = buildGitStatus(status);
 
-    const porcelain: Array<{ file: string; status: string }> = [];
+    expect(result.deletedCount).toBe(1);
+    expect(result.files[0].status).toBe("D");
+  });
 
-    const result = buildGitStatus(numstat, nameStatus, porcelain, "feature");
+  it("handles renamed files as Added (new path)", () => {
+    const status = makeStatus([
+      makeFileStatus("src/new-name.ts", "R", " ", "src/old-name.ts"),
+    ]);
+
+    const result = buildGitStatus(status);
 
     expect(result.files).toHaveLength(1);
-    expect(result.files[0]).toEqual({
-      file: "src/orphan.ts",
-      status: "M",
-      insertions: 7,
-      deletions: 1,
-    });
+    expect(result.files[0].file).toBe("src/new-name.ts");
+    expect(result.files[0].status).toBe("A");
+    expect(result.addedCount).toBe(1);
+  });
+
+  it("handles copied files as Added", () => {
+    const status = makeStatus([
+      makeFileStatus("src/copy.ts", "C", " ", "src/original.ts"),
+    ]);
+
+    const result = buildGitStatus(status);
+
+    expect(result.files[0].file).toBe("src/copy.ts");
+    expect(result.files[0].status).toBe("A");
+  });
+
+  it("handles type-changed files as Modified", () => {
+    const status = makeStatus([
+      makeFileStatus("src/symlink", "T", " "),
+    ]);
+
+    const result = buildGitStatus(status);
+
+    expect(result.files[0].status).toBe("M");
     expect(result.modifiedCount).toBe(1);
   });
 
-  it("counts added (A or ??), modified (M), deleted (D) correctly", () => {
-    const numstat = new Map<string, { insertions: number; deletions: number }>();
-    numstat.set("src/added.ts", { insertions: 20, deletions: 0 });
-    numstat.set("src/modified.ts", { insertions: 5, deletions: 3 });
-    numstat.set("src/deleted.ts", { insertions: 0, deletions: 10 });
+  it("handles conflict codes (UU) as Modified", () => {
+    const status = makeStatus([
+      makeFileStatus("src/conflict.ts", "U", "U"),
+    ]);
 
-    const nameStatus = new Map<string, "A" | "M" | "D">();
-    nameStatus.set("src/added.ts", "A");
-    nameStatus.set("src/modified.ts", "M");
-    nameStatus.set("src/deleted.ts", "D");
+    const result = buildGitStatus(status);
 
-    const porcelain = [
-      { file: "src/added.ts", status: "A" },
-      { file: "src/modified.ts", status: "M" },
-      { file: "src/deleted.ts", status: "D" },
-      { file: "untracked.txt", status: "??" },
-    ];
-
-    const result = buildGitStatus(numstat, nameStatus, porcelain, "main");
-
-    expect(result.addedCount).toBe(2); // A + ??
+    expect(result.files[0].status).toBe("M");
     expect(result.modifiedCount).toBe(1);
+  });
+
+  it("handles staged modification with unstaged modification (MM)", () => {
+    const status = makeStatus([
+      makeFileStatus("src/foo.ts", "M", "M"),
+    ]);
+    const diff = makeDiff([
+      { file: "src/foo.ts", insertions: 15, deletions: 8 },
+    ]);
+
+    const result = buildGitStatus(status, diff);
+
+    expect(result.files).toHaveLength(1);
+    expect(result.files[0].status).toBe("M");
+    expect(result.files[0].insertions).toBe(15);
+    expect(result.files[0].deletions).toBe(8);
+  });
+
+  it("handles added then modified (AM)", () => {
+    const status = makeStatus([
+      makeFileStatus("src/new.ts", "A", "M"),
+    ]);
+
+    const result = buildGitStatus(status);
+
+    expect(result.files[0].status).toBe("A");
+    expect(result.addedCount).toBe(1);
+  });
+
+  it("handles working-tree delete ( D) as Deleted", () => {
+    const status = makeStatus([
+      makeFileStatus("src/gone.ts", " ", "D"),
+    ]);
+
+    const result = buildGitStatus(status);
+
+    expect(result.files[0].status).toBe("D");
     expect(result.deletedCount).toBe(1);
-    expect(result.files).toHaveLength(4);
   });
 
-  it("handles empty inputs (all empty maps/arrays)", () => {
-    const numstat = new Map<string, { insertions: number; deletions: number }>();
-    const nameStatus = new Map<string, "A" | "M" | "D">();
-    const porcelain: Array<{ file: string; status: string }> = [];
+  it("handles empty status (clean repo)", () => {
+    const status = makeStatus([]);
 
-    const result = buildGitStatus(numstat, nameStatus, porcelain, "main");
+    const result = buildGitStatus(status);
 
     expect(result).toEqual({
       branch: "main",
@@ -312,5 +239,62 @@ describe("buildGitStatus", () => {
       deletedCount: 0,
       files: [],
     });
+  });
+
+  it("handles detached HEAD", () => {
+    const status = makeStatus([]);
+    (status as Record<string, unknown>).current = null;
+    (status as Record<string, unknown>).detached = true;
+
+    const result = buildGitStatus(status);
+
+    expect(result.branch).toBe("detached");
+  });
+
+  it("handles binary files in diff (insertions=-1)", () => {
+    const status = makeStatus([
+      makeFileStatus("image.png", "M", " "),
+    ]);
+    const diff = makeDiff([
+      { file: "image.png", insertions: 0, deletions: 0, binary: true },
+    ]);
+
+    const result = buildGitStatus(status, diff);
+
+    expect(result.files[0].insertions).toBe(-1);
+    expect(result.files[0].deletions).toBe(-1);
+    // Binary excluded from totals
+    expect(result.totalInsertions).toBe(0);
+    expect(result.totalDeletions).toBe(0);
+  });
+
+  it("works without diff (no diff argument)", () => {
+    const status = makeStatus([
+      makeFileStatus("src/foo.ts", "M", " "),
+      makeFileStatus("new.txt", "?", "?"),
+    ]);
+
+    const result = buildGitStatus(status);
+
+    expect(result.files).toHaveLength(2);
+    // No diff means all insertions/deletions are 0
+    expect(result.files[0].insertions).toBe(0);
+    expect(result.totalInsertions).toBe(0);
+  });
+
+  it("counts added (A or ??), modified (M), deleted (D) correctly", () => {
+    const status = makeStatus([
+      makeFileStatus("src/added.ts", "A", " "),
+      makeFileStatus("src/modified.ts", "M", " "),
+      makeFileStatus("src/deleted.ts", "D", " "),
+      makeFileStatus("untracked.txt", "?", "?"),
+    ]);
+
+    const result = buildGitStatus(status);
+
+    expect(result.addedCount).toBe(2); // A + ??
+    expect(result.modifiedCount).toBe(1);
+    expect(result.deletedCount).toBe(1);
+    expect(result.files).toHaveLength(4);
   });
 });
