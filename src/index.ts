@@ -62,10 +62,6 @@ export default function (pi: ExtensionAPI): void {
 						icon = "-";
 						iconColor = "error";
 						break;
-					case "??":
-						icon = "?";
-						iconColor = "muted";
-						break;
 					default: // "M"
 						icon = "~";
 						iconColor = "warning";
@@ -96,7 +92,7 @@ export default function (pi: ExtensionAPI): void {
 			if (files.length > MAX_FILES) {
 				const remaining = files.length - MAX_FILES;
 				const remainingFiles = files.slice(MAX_FILES);
-				const remAdded = remainingFiles.filter(f => f.status === "A" || f.status === "??").length;
+				const remAdded = remainingFiles.filter(f => f.status === "A").length;
 				const remChanged = remainingFiles.filter(f => f.status === "M").length;
 				const remDeleted = remainingFiles.filter(f => f.status === "D").length;
 				const remParts: string[] = [];

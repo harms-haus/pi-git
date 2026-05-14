@@ -92,7 +92,7 @@ describe("buildGitStatus", () => {
     expect(result.files).toHaveLength(2);
   });
 
-  it("handles untracked files (no diff stats)", () => {
+  it("handles untracked files as Added", () => {
     const status = makeStatus([
       makeFileStatus("src/tracked.ts", " ", "M"),
       makeFileStatus("untracked.txt", "?", "?"),
@@ -107,7 +107,7 @@ describe("buildGitStatus", () => {
     const untracked = result.files.find((f) => f.file === "untracked.txt");
     expect(untracked).toEqual({
       file: "untracked.txt",
-      status: "??",
+      status: "A",
       insertions: 0,
       deletions: 0,
     });
@@ -282,7 +282,7 @@ describe("buildGitStatus", () => {
     expect(result.totalInsertions).toBe(0);
   });
 
-  it("counts added (A or ??), modified (M), deleted (D) correctly", () => {
+  it("counts added (A), modified (M), deleted (D) correctly", () => {
     const status = makeStatus([
       makeFileStatus("src/added.ts", "A", " "),
       makeFileStatus("src/modified.ts", "M", " "),
@@ -292,7 +292,7 @@ describe("buildGitStatus", () => {
 
     const result = buildGitStatus(status);
 
-    expect(result.addedCount).toBe(2); // A + ??
+    expect(result.addedCount).toBe(2); // A + untracked-as-A
     expect(result.modifiedCount).toBe(1);
     expect(result.deletedCount).toBe(1);
     expect(result.files).toHaveLength(4);

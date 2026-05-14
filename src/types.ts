@@ -2,11 +2,11 @@
 export interface FileChange {
   /** Relative path from repo root */
   file: string;
-  /** Status: A (added), M (modified), D (deleted), ?? (untracked) */
-  status: "A" | "M" | "D" | "??";
-  /** Lines added (from git diff --numstat). -1 if binary or unknown. */
+  /** Status: A (added/new), M (modified), D (deleted) */
+  status: "A" | "M" | "D";
+  /** Lines added (from git diff). -1 if binary or unknown. */
   insertions: number;
-  /** Lines deleted (from git diff --numstat). -1 if binary or unknown. */
+  /** Lines deleted (from git diff). -1 if binary or unknown. */
   deletions: number;
 }
 

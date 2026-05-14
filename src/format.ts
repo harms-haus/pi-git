@@ -14,7 +14,7 @@ export function shortenPath(path: string): string {
 /**
  * Format the agent_end summary as a plain-text multi-line string.
  * Each file gets one line: icon filepath  +N -M
- * Icons: + for added, ~ for modified, - for deleted, ? for untracked
+ * Icons: + for added, ~ for modified, - for deleted
  * The message renderer will apply theme colors.
  *
  * Returns empty string if no files to display.
@@ -30,9 +30,6 @@ export function formatAgentEndSummary(status: GitStatus): string {
         break;
       case "D":
         icon = "-";
-        break;
-      case "??":
-        icon = "?";
         break;
       default: // "M"
         icon = "~";

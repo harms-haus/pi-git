@@ -17,8 +17,8 @@ function mapFileStatus(f: FileStatusResult): FileChange["status"] {
   const wd = f.working_dir;
   const idx = f.index;
 
-  // Untracked
-  if (wd === "?" || idx === "?") return "??";
+  // Untracked — treat as Added (they're new files)
+  if (wd === "?" || idx === "?") return "A";
 
   // Deleted — check both index and working tree
   if (wd === "D" || idx === "D") return "D";
@@ -82,7 +82,7 @@ export function buildGitStatus(
     });
 
     // Counting
-    if (fileStatus === "A" || fileStatus === "??") {
+    if (fileStatus === "A") {
       addedCount++;
     } else if (fileStatus === "M") {
       modifiedCount++;
@@ -177,9 +177,10 @@ export async function refreshGitStatus(): Promise<void> {
     }
 
     // Run status and diffSummary in parallel
+    // diffSummary('HEAD') compares working tree vs last commit (staged + unstaged)
     const [statusResult, diffResult] = await Promise.all([
       git.status(),
-      git.diffSummary().catch(() => undefined) as Promise<
+      git.diffSummary('HEAD').catch(() => undefined) as Promise<
         DiffResult | undefined
       >,
     ]);

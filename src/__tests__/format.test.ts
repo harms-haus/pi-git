@@ -5,7 +5,7 @@ import type { GitStatus } from "../types";
 function makeStatus(
   files: Array<{
     file: string;
-    status: "A" | "M" | "D" | "??";
+    status: "A" | "M" | "D";
     insertions: number;
     deletions: number;
   }>
@@ -64,11 +64,11 @@ describe("formatAgentEndSummary", () => {
     expect(formatAgentEndSummary(status)).toBe("- src/old.ts  -30");
   });
 
-  it("formats untracked file with ? icon, no counts", () => {
+  it("formats added file with + icon, no counts when zero", () => {
     const status = makeStatus([
-      { file: "untracked.txt", status: "??", insertions: 0, deletions: 0 },
+      { file: "untracked.txt", status: "A", insertions: 0, deletions: 0 },
     ]);
-    expect(formatAgentEndSummary(status)).toBe("? untracked.txt");
+    expect(formatAgentEndSummary(status)).toBe("+ untracked.txt");
   });
 
   it("formats multiple files on separate lines", () => {
