@@ -22,6 +22,8 @@ import {
 } from "./git";
 import { startWatcher, stopWatcher } from "./watcher";
 
+const MAX_SEND_FILES = 20;
+
 export default function (pi: ExtensionAPI): void {
 	setApi(pi);
 
@@ -34,16 +36,23 @@ export default function (pi: ExtensionAPI): void {
 					insertions: number;
 					deletions: number;
 				}>;
+				totalFiles?: number;
+				totalInsertions?: number;
+				totalDeletions?: number;
+				addedCount?: number;
+				modifiedCount?: number;
+				deletedCount?: number;
 			};
 
 			const MAX_FILES = 20;
 			const files = parsed.files;
-			const totalIns = files.reduce((sum, f) => sum + (f.insertions > 0 ? f.insertions : 0), 0);
-			const totalDel = files.reduce((sum, f) => sum + (f.deletions > 0 ? f.deletions : 0), 0);
+			const totalFiles = parsed.totalFiles ?? files.length;
+			const totalIns = parsed.totalInsertions ?? files.reduce((sum, f) => sum + (f.insertions > 0 ? f.insertions : 0), 0);
+			const totalDel = parsed.totalDeletions ?? files.reduce((sum, f) => sum + (f.deletions > 0 ? f.deletions : 0), 0);
 
 			// Build header line
 			const headerParts: string[] = [];
-			headerParts.push(theme.fg("muted", `${files.length} file${files.length !== 1 ? "s" : ""} changed`));
+			headerParts.push(theme.fg("muted", `${totalFiles} file${totalFiles !== 1 ? "s" : ""} changed`));
 			const headerCounts: string[] = [];
 			if (totalIns > 0) headerCounts.push(theme.fg("success", `+${totalIns}`));
 			if (totalDel > 0) headerCounts.push(theme.fg("error", `-${totalDel}`));
@@ -89,12 +98,14 @@ export default function (pi: ExtensionAPI): void {
 				return parts.join("");
 			});
 
-			if (files.length > MAX_FILES) {
-				const remaining = files.length - MAX_FILES;
-				const remainingFiles = files.slice(MAX_FILES);
-				const remAdded = remainingFiles.filter(f => f.status === "A").length;
-				const remChanged = remainingFiles.filter(f => f.status === "M").length;
-				const remDeleted = remainingFiles.filter(f => f.status === "D").length;
+			if (totalFiles > MAX_FILES) {
+				const remaining = totalFiles - MAX_FILES;
+				const displayedAdded = displayFiles.filter(f => f.status === "A").length;
+				const displayedModified = displayFiles.filter(f => f.status === "M").length;
+				const displayedDeleted = displayFiles.filter(f => f.status === "D").length;
+				const remAdded = Math.max(0, (parsed.addedCount ?? 0) - displayedAdded);
+				const remChanged = Math.max(0, (parsed.modifiedCount ?? 0) - displayedModified);
+				const remDeleted = Math.max(0, (parsed.deletedCount ?? 0) - displayedDeleted);
 				const remParts: string[] = [];
 				if (remAdded > 0) remParts.push(`${remAdded} new`);
 				if (remChanged > 0) remParts.push(`${remChanged} changed`);
@@ -105,7 +116,7 @@ export default function (pi: ExtensionAPI): void {
 
 			return new Text([headerParts.join("  "), ...lines].join("\n"), 0, 0);
 		} catch {
-			return new Text(message.content as string, 0, 0);
+			return new Text("\u26a0 Git summary could not be rendered", 0, 0);
 		}
 	});
 
@@ -157,14 +168,26 @@ export default function (pi: ExtensionAPI): void {
 		debouncedRefreshGitStatus();
 	});
 
-	pi.on("agent_end", () => {
-		// Access gitStatus via live binding — reads current value at call time
+	pi.on("agent_end", async () => {
+		// Force a fresh read before reading gitStatus to avoid stale data
+		// from the debounced refresh triggered by turn_end.
+		await refreshGitStatus();
 		const status = gitStatus;
 		if (!status || status.files.length === 0) return;
 
+		const filesToSend = status.files.slice(0, MAX_SEND_FILES);
+
 		pi.sendMessage({
 			customType: "pi-git-summary",
-			content: JSON.stringify({ files: status.files }),
+			content: JSON.stringify({
+				files: filesToSend,
+				totalFiles: status.files.length,
+				totalInsertions: status.totalInsertions,
+				totalDeletions: status.totalDeletions,
+				addedCount: status.addedCount,
+				modifiedCount: status.modifiedCount,
+				deletedCount: status.deletedCount,
+			}),
 			display: true,
 		}, { triggerTurn: false });
 	});

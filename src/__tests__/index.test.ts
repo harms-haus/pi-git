@@ -204,7 +204,7 @@ describe("pi-git extension", () => {
 
 	// ---- agent_end handler -------------------------------------------------
 
-	it("agent_end sends message when gitStatus has files", () => {
+	it("agent_end sends message when gitStatus has files", async () => {
 		mockGitStatus = {
 			branch: "main",
 			totalInsertions: 5,
@@ -225,30 +225,39 @@ describe("pi-git extension", () => {
 		const handler = mockPi.on.mock.calls.find(
 			(c: unknown[]) => c[0] === "agent_end",
 		)![1] as Mock;
-		handler();
+		await handler();
 
 		expect(mockPi.sendMessage).toHaveBeenCalledWith(
 			{
 				customType: "pi-git-summary",
-				content: JSON.stringify({ files: mockGitStatus!.files }),
+				content: JSON.stringify({
+					files: mockGitStatus!.files,
+					totalFiles: mockGitStatus!.files.length,
+					totalInsertions: mockGitStatus!.totalInsertions,
+					totalDeletions: mockGitStatus!.totalDeletions,
+					addedCount: mockGitStatus!.addedCount,
+					modifiedCount: mockGitStatus!.modifiedCount,
+					deletedCount: mockGitStatus!.deletedCount,
+				}),
 				display: true,
 			},
 			{ triggerTurn: false },
 		);
 	});
 
-	it("agent_end does nothing when gitStatus is null", () => {
+	it("agent_end does nothing when gitStatus is null", async () => {
 		mockGitStatus = null;
 
 		const handler = mockPi.on.mock.calls.find(
 			(c: unknown[]) => c[0] === "agent_end",
 		)![1] as Mock;
-		handler();
+		await handler();
 
 		expect(mockPi.sendMessage).not.toHaveBeenCalled();
+		expect(refreshGitStatus).toHaveBeenCalled();
 	});
 
-	it("agent_end does nothing when gitStatus has no files", () => {
+	it("agent_end does nothing when gitStatus has no files", async () => {
 		mockGitStatus = {
 			branch: "main",
 			totalInsertions: 0,
@@ -262,8 +271,112 @@ describe("pi-git extension", () => {
 		const handler = mockPi.on.mock.calls.find(
 			(c: unknown[]) => c[0] === "agent_end",
 		)![1] as Mock;
-		handler();
+		await handler();
 
 		expect(mockPi.sendMessage).not.toHaveBeenCalled();
+	});
+
+	it("agent_end truncates files to 20 when 60+ files exist", async () => {
+		mockGitStatus = {
+			branch: "main",
+			totalInsertions: 60,
+			totalDeletions: 0,
+			addedCount: 0,
+			modifiedCount: 60,
+			deletedCount: 0,
+			files: Array.from({ length: 60 }, (_, i) => ({
+				file: `src/file${i}.ts`,
+				status: "M" as const,
+				insertions: 1,
+				deletions: 0,
+			})),
+		};
+
+		const handler = mockPi.on.mock.calls.find(
+			(c: unknown[]) => c[0] === "agent_end",
+		)![1] as Mock;
+		await handler();
+
+		expect(mockPi.sendMessage).toHaveBeenCalledTimes(1);
+
+		const sendArg = mockPi.sendMessage.mock.calls[0][0] as {
+			content: string;
+		};
+		const parsed = JSON.parse(sendArg.content);
+		expect(parsed.files).toHaveLength(20);
+		expect(parsed.totalFiles).toBe(60);
+		expect(parsed.totalInsertions).toBe(60);
+		expect(parsed.totalDeletions).toBe(0);
+		expect(parsed.addedCount).toBe(0);
+		expect(parsed.modifiedCount).toBe(60);
+		expect(parsed.deletedCount).toBe(0);
+	});
+
+	it("agent_end truncates to 20 when exactly 50 files exist", async () => {
+		mockGitStatus = {
+			branch: "main",
+			totalInsertions: 50,
+			totalDeletions: 0,
+			addedCount: 0,
+			modifiedCount: 50,
+			deletedCount: 0,
+			files: Array.from({ length: 50 }, (_, i) => ({
+				file: `src/file${i}.ts`,
+				status: "M" as const,
+				insertions: 1,
+				deletions: 0,
+			})),
+		};
+
+		const handler = mockPi.on.mock.calls.find(
+			(c: unknown[]) => c[0] === "agent_end",
+		)![1] as Mock;
+		await handler();
+
+		expect(mockPi.sendMessage).toHaveBeenCalledTimes(1);
+
+		const sendArg = mockPi.sendMessage.mock.calls[0][0] as {
+			content: string;
+		};
+		const parsed = JSON.parse(sendArg.content);
+		expect(parsed.files).toHaveLength(20);
+		expect(parsed.totalFiles).toBe(50);
+		expect(parsed.addedCount).toBe(0);
+		expect(parsed.modifiedCount).toBe(50);
+		expect(parsed.deletedCount).toBe(0);
+	});
+
+	it("agent_end truncates to 20 when exactly 51 files exist", async () => {
+		mockGitStatus = {
+			branch: "main",
+			totalInsertions: 51,
+			totalDeletions: 0,
+			addedCount: 0,
+			modifiedCount: 51,
+			deletedCount: 0,
+			files: Array.from({ length: 51 }, (_, i) => ({
+				file: `src/file${i}.ts`,
+				status: "M" as const,
+				insertions: 1,
+				deletions: 0,
+			})),
+		};
+
+		const handler = mockPi.on.mock.calls.find(
+			(c: unknown[]) => c[0] === "agent_end",
+		)![1] as Mock;
+		await handler();
+
+		expect(mockPi.sendMessage).toHaveBeenCalledTimes(1);
+
+		const sendArg = mockPi.sendMessage.mock.calls[0][0] as {
+			content: string;
+		};
+		const parsed = JSON.parse(sendArg.content);
+		expect(parsed.files).toHaveLength(20);
+		expect(parsed.totalFiles).toBe(51);
+		expect(parsed.addedCount).toBe(0);
+		expect(parsed.modifiedCount).toBe(51);
+		expect(parsed.deletedCount).toBe(0);
 	});
 });

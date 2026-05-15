@@ -18,7 +18,7 @@ export interface GitStatus {
   totalInsertions: number;
   /** Total deletions across all changed files (excludes binary) */
   totalDeletions: number;
-  /** Count of added files (status A or ??) */
+  /** Count of added files (status A, including untracked mapped to A) */
   addedCount: number;
   /** Count of modified files (status M) */
   modifiedCount: number;
