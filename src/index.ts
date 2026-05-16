@@ -177,18 +177,22 @@ export default function (pi: ExtensionAPI): void {
 
 		const filesToSend = status.files.slice(0, MAX_SEND_FILES);
 
-		pi.sendMessage({
-			customType: "pi-git-summary",
-			content: JSON.stringify({
-				files: filesToSend,
-				totalFiles: status.files.length,
-				totalInsertions: status.totalInsertions,
-				totalDeletions: status.totalDeletions,
-				addedCount: status.addedCount,
-				modifiedCount: status.modifiedCount,
-				deletedCount: status.deletedCount,
-			}),
-			display: true,
-		}, { triggerTurn: false });
+		pi.sendMessage(
+			{
+				customType: "pi-git-summary",
+				content: JSON.stringify({
+					files: filesToSend,
+					totalFiles: status.files.length,
+					totalInsertions: status.totalInsertions,
+					totalDeletions: status.totalDeletions,
+					addedCount: status.addedCount,
+					modifiedCount: status.modifiedCount,
+					deletedCount: status.deletedCount,
+				}),
+				display: true,
+				excludeFromContext: true,
+			},
+			{ triggerTurn: false },
+		);
 	});
 }

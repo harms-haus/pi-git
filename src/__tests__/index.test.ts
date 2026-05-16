@@ -240,6 +240,7 @@ describe("pi-git extension", () => {
 					deletedCount: mockGitStatus!.deletedCount,
 				}),
 				display: true,
+				excludeFromContext: true,
 			},
 			{ triggerTurn: false },
 		);
