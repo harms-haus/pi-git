@@ -27,7 +27,7 @@ function handleSessionChange(ctx: ExtensionContext) {
   }
   clearGitState();
   stopWatcher();
-  startWatcher(ctx.cwd, () => debouncedRefreshGitStatus());
+  startWatcher(ctx.cwd, () => debouncedRefreshGitStatus()).catch(() => {});
   refreshGitStatus();
 }
 

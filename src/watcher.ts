@@ -1,8 +1,13 @@
-import { watch } from "node:fs";
+import { watch, existsSync } from "node:fs";
+import { lstat, readdir } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
+const MAX_WATCHERS = 100;
 const IGNORED_DIRS = new Set([".git", "node_modules", ".cache", "dist", "coverage"]);
 
-let watcher: ReturnType<typeof watch> | undefined;
+const activeWatchers = new Set<ReturnType<typeof watch>>();
+let epoch = 0;
 
 /**
  * Check if a file path should be ignored by the watcher.
@@ -18,35 +23,107 @@ export function isIgnoredPath(filename: string | undefined | null): boolean {
 }
 
 /**
- * Start a recursive filesystem watcher on the given directory.
- * Calls onRefresh directly — the callback is expected to handle its own debouncing.
+ * Check if a path is a symbolic link.
+ * Returns true on error (e.g., ENOENT) to skip by default.
  */
-export function startWatcher(cwd: string, onRefresh: () => void): void {
-  stopWatcher();
-
+async function isSymlink(absPath: string): Promise<boolean> {
   try {
-    watcher = watch(cwd, { recursive: true }, (_eventType, filename) => {
-      if (isIgnoredPath(filename)) {
-        return;
-      }
-      onRefresh();
-    });
-
-    watcher.on("error", (err) => {
-      console.warn("[pi-git] watcher error:", (err as Error).message);
-    });
+    const stats = await lstat(absPath);
+    return stats.isSymbolicLink();
   } catch {
-    // Directory may not exist or fs.watch may not be supported.
-    watcher = undefined;
+    return true;
   }
 }
 
 /**
- * Stop the filesystem watcher.
+ * Collect watchable directories under root via BFS.
+ * Skips IGNORED_DIRS, symlinks, and stops at MAX_WATCHERS.
+ */
+async function collectWatchableDirs(root: string): Promise<string[]> {
+  const results: string[] = [];
+  const queue: string[] = [root];
+
+  while (queue.length > 0 && results.length < MAX_WATCHERS) {
+    const dir = queue.shift();
+    if (!dir) {
+      break;
+    }
+    results.push(dir);
+
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (results.length + queue.length >= MAX_WATCHERS) {
+        break;
+      }
+
+      if (!entry.isDirectory() || IGNORED_DIRS.has(entry.name)) {
+        continue;
+      }
+
+      const absPath = join(dir, entry.name);
+
+      if (await isSymlink(absPath)) {
+        continue;
+      }
+
+      queue.push(absPath);
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Start per-directory filesystem watchers on the given directory tree.
+ * Calls onRefresh directly — the callback is expected to handle its own debouncing.
+ */
+export async function startWatcher(cwd: string, onRefresh: () => void): Promise<void> {
+  if (cwd === homedir() || !existsSync(cwd)) {
+    return;
+  }
+
+  const myEpoch = ++epoch;
+  stopWatcher();
+
+  try {
+    const dirs = await collectWatchableDirs(cwd);
+
+    if (myEpoch !== epoch) {
+      return;
+    }
+
+    for (const dir of dirs) {
+      const w = watch(dir, (_eventType, filename) => {
+        if (isIgnoredPath(filename)) {
+          return;
+        }
+        onRefresh();
+      });
+
+      w.on("error", (err) => {
+        console.warn("[pi-git] watcher error:", (err as Error).message);
+      });
+
+      activeWatchers.add(w);
+    }
+  } catch {
+    // Directory may not exist or fs.watch may not be supported.
+    stopWatcher();
+  }
+}
+
+/**
+ * Stop all filesystem watchers.
  */
 export function stopWatcher(): void {
-  if (watcher) {
-    watcher.close();
-    watcher = undefined;
+  for (const w of activeWatchers) {
+    w.close();
   }
+  activeWatchers.clear();
 }

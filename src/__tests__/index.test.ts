@@ -36,7 +36,7 @@ vi.mock("../git", () => ({
 
 // --- Mock: ../watcher ---
 vi.mock("../watcher", () => ({
-  startWatcher: vi.fn(),
+  startWatcher: vi.fn(() => Promise.resolve()),
   stopWatcher: vi.fn(),
 }));
 

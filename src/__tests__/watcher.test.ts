@@ -1,17 +1,65 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { startWatcher, stopWatcher, isIgnoredPath } from "../watcher";
-import { watch } from "node:fs";
 
-vi.mock("node:fs", () => ({
-  watch: vi.fn(),
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = (await importOriginal()) as Record<string, unknown>;
+  return {
+    ...actual,
+    watch: vi.fn(),
+    existsSync: vi.fn(() => true),
+  };
+});
+
+vi.mock("node:fs/promises", () => ({
+  lstat: vi.fn(),
+  readdir: vi.fn(),
 }));
 
+vi.mock("node:os", () => ({
+  homedir: vi.fn(() => "/home/user"),
+}));
+
+vi.mock("node:path", () => ({
+  join: (...args: string[]) => args.join("/"),
+}));
+
+import { watch, existsSync } from "node:fs";
+import { readdir, lstat } from "node:fs/promises";
+import { homedir } from "node:os";
+import { startWatcher, stopWatcher, isIgnoredPath } from "../watcher";
+
 const mockWatch = vi.mocked(watch);
+const mockReaddir = vi.mocked(readdir);
+const mockLstat = vi.mocked(lstat);
+const mockHomedir = vi.mocked(homedir);
+const mockExistsSync = vi.mocked(existsSync);
+
+function makeDirEntry(name: string, isDir: boolean) {
+  return {
+    name,
+    parentPath: "",
+    path: "",
+    isDirectory: () => isDir,
+    isFile: () => !isDir,
+    isBlockDevice: () => false,
+    isCharacterDevice: () => false,
+    isSymbolicLink: () => false,
+    isFIFO: () => false,
+    isSocket: () => false,
+  } as any;
+}
+
+function fakeWatcher() {
+  return { on: vi.fn(), close: vi.fn() };
+}
 
 describe("watcher", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     stopWatcher();
+    mockReaddir.mockResolvedValue([]);
+    mockLstat.mockResolvedValue({ isSymbolicLink: () => false } as never);
+    mockExistsSync.mockReturnValue(true);
+    mockHomedir.mockReturnValue("/home/user");
   });
 
   afterEach(() => {
@@ -19,110 +67,208 @@ describe("watcher", () => {
   });
 
   describe("startWatcher", () => {
-    it("creates a watcher on the given directory", () => {
-      const fakeWatcher = { on: vi.fn(), close: vi.fn() };
-      mockWatch.mockReturnValue(fakeWatcher as never);
+    it("creates a watcher on the given directory", async () => {
+      const fw = fakeWatcher();
+      mockWatch.mockReturnValue(fw as never);
+      mockReaddir.mockResolvedValue([]);
       const onRefresh = vi.fn();
 
-      startWatcher("/tmp/repo", onRefresh);
+      await startWatcher("/tmp/repo", onRefresh);
 
-      expect(mockWatch).toHaveBeenCalledWith(
-        "/tmp/repo",
-        { recursive: true },
-        expect.any(Function),
-      );
+      expect(mockWatch).toHaveBeenCalledWith("/tmp/repo", expect.any(Function));
     });
 
-    it("calls onRefresh when a non-ignored file event occurs", () => {
-      const fakeWatcher = { on: vi.fn(), close: vi.fn() };
-      mockWatch.mockReturnValue(fakeWatcher as never);
+    it("calls onRefresh when a non-ignored file event occurs", async () => {
+      const fw = fakeWatcher();
+      mockWatch.mockReturnValue(fw as never);
+      mockReaddir.mockResolvedValue([]);
       const onRefresh = vi.fn();
 
-      startWatcher("/tmp/repo", onRefresh);
+      await startWatcher("/tmp/repo", onRefresh);
 
-      // Access the callback passed as the 3rd argument to watch()
-      const calls = mockWatch.mock.calls as Array<Array<unknown>>;
-      const callback = calls[0][2] as (event: string, filename: string | null) => void;
+      // Access the callback passed as the 2nd argument to watch()
+      const callback = mockWatch.mock.calls[0][1] as (
+        event: string,
+        filename: string | null,
+      ) => void;
       callback("change", "src/index.ts");
 
       expect(onRefresh).toHaveBeenCalledTimes(1);
     });
 
-    it("does not call onRefresh for ignored paths", () => {
-      const fakeWatcher = { on: vi.fn(), close: vi.fn() };
-      mockWatch.mockReturnValue(fakeWatcher as never);
+    it("does not call onRefresh for ignored paths", async () => {
+      const fw = fakeWatcher();
+      mockWatch.mockReturnValue(fw as never);
+      mockReaddir.mockResolvedValue([]);
       const onRefresh = vi.fn();
 
-      startWatcher("/tmp/repo", onRefresh);
+      await startWatcher("/tmp/repo", onRefresh);
 
-      const calls = mockWatch.mock.calls as Array<Array<unknown>>;
-      const callback = calls[0][2] as (event: string, filename: string | null) => void;
+      const callback = mockWatch.mock.calls[0][1] as (
+        event: string,
+        filename: string | null,
+      ) => void;
       callback("change", ".git/HEAD");
       callback("change", "node_modules/foo/index.js");
 
       expect(onRefresh).not.toHaveBeenCalled();
     });
 
-    it("registers an error handler on the watcher", () => {
-      const fakeWatcher = { on: vi.fn(), close: vi.fn() };
-      mockWatch.mockReturnValue(fakeWatcher as never);
+    it("registers an error handler on the watcher", async () => {
+      const fw = fakeWatcher();
+      mockWatch.mockReturnValue(fw as never);
+      mockReaddir.mockResolvedValue([]);
       const onRefresh = vi.fn();
 
-      startWatcher("/tmp/repo", onRefresh);
+      await startWatcher("/tmp/repo", onRefresh);
 
-      expect(fakeWatcher.on).toHaveBeenCalledWith("error", expect.any(Function));
+      expect(fw.on).toHaveBeenCalledWith("error", expect.any(Function));
     });
 
-    it("handles error handler gracefully", () => {
-      const fakeWatcher = { on: vi.fn(), close: vi.fn() };
-      mockWatch.mockReturnValue(fakeWatcher as never);
+    it("handles error handler gracefully", async () => {
+      const fw = fakeWatcher();
+      mockWatch.mockReturnValue(fw as never);
+      mockReaddir.mockResolvedValue([]);
       const onRefresh = vi.fn();
 
-      startWatcher("/tmp/repo", onRefresh);
+      await startWatcher("/tmp/repo", onRefresh);
 
-      const errorHandler = fakeWatcher.on.mock.calls.find((c) => c[0] === "error")![1];
-      // Should not throw
+      const errorHandler = fw.on.mock.calls.find((c) => c[0] === "error")![1];
       const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       errorHandler(new Error("test error"));
       expect(consoleSpy).toHaveBeenCalledWith("[pi-git] watcher error:", "test error");
       consoleSpy.mockRestore();
     });
 
-    it("stops previous watcher before creating a new one", () => {
-      const fakeWatcher1 = { on: vi.fn(), close: vi.fn() };
-      const fakeWatcher2 = { on: vi.fn(), close: vi.fn() };
-      mockWatch.mockReturnValueOnce(fakeWatcher1 as never);
-      mockWatch.mockReturnValueOnce(fakeWatcher2 as never);
+    it("stops previous watchers before creating new ones", async () => {
+      const fw1 = fakeWatcher();
+      const fw2 = fakeWatcher();
+      mockWatch.mockReturnValueOnce(fw1 as never).mockReturnValueOnce(fw2 as never);
+      mockReaddir.mockResolvedValue([]);
       const onRefresh = vi.fn();
 
-      startWatcher("/tmp/repo1", onRefresh);
-      startWatcher("/tmp/repo2", onRefresh);
+      await startWatcher("/tmp/repo1", onRefresh);
+      await startWatcher("/tmp/repo2", onRefresh);
 
-      expect(fakeWatcher1.close).toHaveBeenCalled();
+      expect(fw1.close).toHaveBeenCalled();
       expect(mockWatch).toHaveBeenCalledTimes(2);
     });
 
-    it("handles exception from fs.watch gracefully", () => {
-      mockWatch.mockImplementation(() => {
-        throw new Error("not supported");
-      });
+    it("handles exception gracefully", async () => {
+      mockReaddir.mockRejectedValue(new Error("not found"));
       const onRefresh = vi.fn();
 
       // Should not throw
-      expect(() => startWatcher("/nonexistent", onRefresh)).not.toThrow();
+      await expect(startWatcher("/nonexistent", onRefresh)).resolves.toBeUndefined();
+    });
+
+    it("creates watchers for subdirectories", async () => {
+      const fw1 = fakeWatcher();
+      const fw2 = fakeWatcher();
+      mockWatch
+        .mockReturnValueOnce(fw1 as never)
+        .mockReturnValueOnce(fw2 as never);
+      mockReaddir
+        .mockResolvedValueOnce([makeDirEntry("src", true)])
+        .mockResolvedValueOnce([]);
+      const onRefresh = vi.fn();
+
+      await startWatcher("/tmp/repo", onRefresh);
+
+      expect(mockWatch).toHaveBeenCalledTimes(2);
+      expect(mockWatch).toHaveBeenCalledWith("/tmp/repo", expect.any(Function));
+      expect(mockWatch).toHaveBeenCalledWith("/tmp/repo/src", expect.any(Function));
+    });
+
+    it("skips ignored directories", async () => {
+      const fw = fakeWatcher();
+      mockWatch.mockReturnValue(fw as never);
+      mockReaddir.mockResolvedValueOnce([
+        makeDirEntry("node_modules", true),
+        makeDirEntry(".git", true),
+        makeDirEntry("src", true),
+      ]);
+      mockReaddir.mockResolvedValueOnce([]);
+      const onRefresh = vi.fn();
+
+      await startWatcher("/tmp/repo", onRefresh);
+
+      // root + src only (node_modules and .git skipped)
+      expect(mockWatch).toHaveBeenCalledTimes(2);
+    });
+
+    it("skips symlinks", async () => {
+      const fw = fakeWatcher();
+      mockWatch.mockReturnValue(fw as never);
+      mockReaddir.mockResolvedValueOnce([makeDirEntry("link", true)]);
+      // lstat is called for the "link" subdir — return true so it's skipped
+      mockLstat.mockResolvedValue({ isSymbolicLink: () => true } as never);
+      const onRefresh = vi.fn();
+
+      await startWatcher("/tmp/repo", onRefresh);
+
+      // root only (link is symlink, skipped)
+      expect(mockWatch).toHaveBeenCalledTimes(1);
+    });
+
+    it("rejects cwd when it equals homedir()", async () => {
+      const fw = fakeWatcher();
+      mockWatch.mockReturnValue(fw as never);
+      const onRefresh = vi.fn();
+
+      // homedir() returns "/home/user" by default from our mock
+      await startWatcher("/home/user", onRefresh);
+
+      expect(mockWatch).not.toHaveBeenCalled();
+    });
+
+    it("rejects cwd when existsSync returns false", async () => {
+      const fw = fakeWatcher();
+      mockWatch.mockReturnValue(fw as never);
+      const onRefresh = vi.fn();
+
+      mockExistsSync.mockReturnValue(false);
+
+      await startWatcher("/tmp/nonexistent", onRefresh);
+
+      expect(mockWatch).not.toHaveBeenCalled();
+    });
+
+    it("caps watchers at MAX_WATCHERS (100)", async () => {
+      // Generate 150 directory entries in the root to exceed the 100 cap
+      const rootEntries = Array.from({ length: 150 }, (_, i) =>
+        makeDirEntry(`dir${i}`, true),
+      );
+
+      // Each subdir returns empty (no further nesting)
+      mockReaddir.mockResolvedValueOnce(rootEntries);
+      // Subsequent calls for each subdirectory return empty
+      mockReaddir.mockResolvedValue([]);
+
+      // Need enough fake watchers for all calls
+      const fakeWatchers = Array.from({ length: 150 }, () => fakeWatcher());
+      mockWatch.mockImplementation((() => fakeWatchers.shift()!) as never);
+
+      const onRefresh = vi.fn();
+
+      await startWatcher("/tmp/bigrepo", onRefresh);
+
+      // Should be capped at 100 watchers (root + 99 subdirs)
+      expect(mockWatch).toHaveBeenCalledTimes(100);
     });
   });
 
   describe("stopWatcher", () => {
-    it("closes the watcher if one is active", () => {
-      const fakeWatcher = { on: vi.fn(), close: vi.fn() };
-      mockWatch.mockReturnValue(fakeWatcher as never);
+    it("closes all watchers if active", async () => {
+      const fw = fakeWatcher();
+      mockWatch.mockReturnValue(fw as never);
+      mockReaddir.mockResolvedValue([]);
       const onRefresh = vi.fn();
 
-      startWatcher("/tmp/repo", onRefresh);
+      await startWatcher("/tmp/repo", onRefresh);
       stopWatcher();
 
-      expect(fakeWatcher.close).toHaveBeenCalled();
+      expect(fw.close).toHaveBeenCalled();
     });
 
     it("is safe to call when no watcher is active", () => {
