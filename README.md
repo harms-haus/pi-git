@@ -1,3 +1,5 @@
+[![CI](https://github.com/harms-haus/pi-git/actions/workflows/ci.yml/badge.svg)](https://github.com/harms-haus/pi-git/actions/workflows/ci.yml)
+
 # pi-git
 
 Rich git status tracking for the [pi coding agent](https://pi.dev). Provides a live, color-coded git status footer label and an agent-end summary of changed files — kept up to date in real time via filesystem watching.
@@ -27,7 +29,7 @@ Replaces the built-in cwd / branch / diff-stats section in the pi-powerline foot
 - **Bullet separators** (`•`) for clear visual grouping
 
 Updated automatically via:
-- **Filesystem watcher** — recursive `fs.watch` with 500 ms debounce detects file changes in real time
+- **Filesystem watcher** — recursive `fs.watch` detects file changes in real time
 - **Tool results** — triggers a debounced refresh whenever the agent writes, edits, or runs bash commands
 - **Turn end** — refreshes after each agent turn completes
 
@@ -44,7 +46,8 @@ When the agent finishes a task, pi-git displays a per-file breakdown of all chan
 ```
 
 Each line shows:
-- An icon indicating the change type: `+` added, `~` modified, `-` deleted, `?` untracked
+- An icon indicating the change type: `+` added, `~` modified, `-` deleted
+- `(binary)` — shown for binary files that have no line-level diff
 - The file path
 - Per-file line counts (`+N` in green, `-N` in red)
 
@@ -57,7 +60,7 @@ Large changesets are capped at 20 files with an overflow summary:
 
 ### Performance
 
-- **Parallel git commands** — runs `git diff --numstat`, `git diff --name-status`, `git status --porcelain`, and `git rev-parse` concurrently via `Promise.all`
+- **Parallel git commands** — runs git status and git diff commands concurrently via `Promise.all` (leveraging the simple-git library)
 - **Unified debounce** — all refresh triggers (filesystem watcher, tool results, turn end) share a single 500 ms debounce timer
 - **Smart ignore list** — skips events from `.git`, `node_modules`, `.cache`, `dist`, `coverage` (including nested paths)
 
@@ -69,6 +72,20 @@ The footer gracefully falls back to pi-powerline's built-in rendering when:
 - pi-git is not installed or loaded
 - The working directory is not a git repository
 - The git status payload is invalid
+
+## Development
+
+```bash
+npm install          # Install dependencies
+npm test             # Run tests
+npm run test:coverage # Run tests with coverage report
+npm run typecheck    # Type check
+npm run lint         # Lint
+npm run format:check # Check formatting
+npm run test:watch    # Run tests in watch mode
+npm run format        # Auto-fix formatting
+npm run lint:fix      # Auto-fix lint issues
+```
 
 ## Related Extensions
 
