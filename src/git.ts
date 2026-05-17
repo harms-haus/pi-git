@@ -1,8 +1,9 @@
+import { isAbsolute } from "node:path";
+import { simpleGit } from "simple-git";
+import { shortenPath } from "./format";
+import { currentCtx, currentCwd } from "./state";
 import type { GitStatus, FileChange } from "./types";
 import type { StatusResult, DiffResult, FileStatusResult } from "simple-git";
-import { simpleGit } from "simple-git";
-import { currentCtx, currentCwd } from "./state";
-import { shortenPath } from "./format";
 
 // ---------------------------------------------------------------------------
 // Pure mapping functions (no side effects)
@@ -18,16 +19,24 @@ function mapFileStatus(f: FileStatusResult): FileChange["status"] {
   const idx = f.index;
 
   // Untracked — treat as Added (they're new files)
-  if (wd === "?" || idx === "?") return "A";
+  if (wd === "?" || idx === "?") {
+    return "A";
+  }
 
   // Deleted — check both index and working tree
-  if (wd === "D" || idx === "D") return "D";
+  if (wd === "D" || idx === "D") {
+    return "D";
+  }
 
   // Renamed or Copied — treat as Added (the new file appears)
-  if (idx === "R" || idx === "C" || wd === "R" || wd === "C") return "A";
+  if (idx === "R" || idx === "C" || wd === "R" || wd === "C") {
+    return "A";
+  }
 
   // Added — new file in index or working tree
-  if (idx === "A" || wd === "A") return "A";
+  if (idx === "A" || wd === "A") {
+    return "A";
+  }
 
   // Everything else is Modified (M, T, U, conflict codes, etc.)
   return "M";
@@ -39,11 +48,10 @@ function mapFileStatus(f: FileStatusResult): FileChange["status"] {
  * - StatusResult provides file list with statuses (including renames, copies, untracked).
  * - DiffResult provides per-file insertions/deletions (for tracked, non-renamed files).
  * - Untracked files get insertions/deletions = 0.
+ *
+ * @internal Exported for testing only.
  */
-export function buildGitStatus(
-  status: StatusResult,
-  diff?: DiffResult,
-): GitStatus {
+export function buildGitStatus(status: StatusResult, diff?: DiffResult): GitStatus {
   // Build a lookup for diff stats by filepath
   const diffMap = new Map<string, { insertions: number; deletions: number }>();
   if (diff) {
@@ -71,6 +79,8 @@ export function buildGitStatus(
     // Use f.path (the current name), or for renames f.from → old, f.path → new
     const filepath = f.path;
     const stats = diffMap.get(filepath);
+    // Note: git diff HEAD does not include untracked files, so they will
+    // have no entry in diffMap and their insertions/deletions default to 0.
     const insertions = stats?.insertions ?? 0;
     const deletions = stats?.deletions ?? 0;
 
@@ -90,12 +100,15 @@ export function buildGitStatus(
       deletedCount++;
     }
 
-    if (insertions !== -1) totalInsertions += insertions;
-    if (deletions !== -1) totalDeletions += deletions;
+    if (insertions !== -1) {
+      totalInsertions += insertions;
+    }
+    if (deletions !== -1) {
+      totalDeletions += deletions;
+    }
   }
 
-  const branch =
-    status.current ?? (status.detached ? "detached" : "unknown");
+  const branch = status.current ?? (status.detached ? "detached" : "unknown");
 
   return {
     branch,
@@ -113,6 +126,7 @@ export function buildGitStatus(
 // ---------------------------------------------------------------------------
 
 export let gitStatus: GitStatus | null = null;
+let gitInstance: ReturnType<typeof simpleGit> | undefined;
 let gitRefreshInFlight = false;
 let gitRefreshPending = false;
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -125,9 +139,12 @@ let debounceTimer: ReturnType<typeof setTimeout> | undefined;
  * Update the pi-git footer label with current git status.
  * Reads module-level gitStatus + state (currentCtx, currentCwd).
  */
-export function updateFooterLabel(): void {
+/** @internal */
+function updateFooterLabel(): void {
   const ctx = currentCtx;
-  if (!ctx || !ctx.ui) return;
+  if (!ctx || !ctx.ui) {
+    return;
+  }
 
   if (!gitStatus || gitStatus.files.length === 0) {
     ctx.ui.setStatus("pi-git", undefined);
@@ -157,7 +174,12 @@ export function updateFooterLabel(): void {
  * Guarded against concurrent execution via gitRefreshInFlight.
  */
 export async function refreshGitStatus(): Promise<void> {
-  if (!currentCwd) return;
+  if (!currentCwd) {
+    return;
+  }
+  if (!isAbsolute(currentCwd)) {
+    return;
+  }
   if (gitRefreshInFlight) {
     gitRefreshPending = true;
     return;
@@ -166,7 +188,10 @@ export async function refreshGitStatus(): Promise<void> {
   gitRefreshInFlight = true;
 
   try {
-    const git = simpleGit(currentCwd);
+    if (!gitInstance) {
+      gitInstance = simpleGit(currentCwd);
+    }
+    const git = gitInstance;
 
     // Check if this is actually a git repo
     const isRepo = await git.checkIsRepo();
@@ -180,9 +205,7 @@ export async function refreshGitStatus(): Promise<void> {
     // diffSummary('HEAD') compares working tree vs last commit (staged + unstaged)
     const [statusResult, diffResult] = await Promise.all([
       git.status(),
-      git.diffSummary('HEAD').catch(() => undefined) as Promise<
-        DiffResult | undefined
-      >,
+      git.diffSummary("HEAD").catch(() => undefined) as Promise<DiffResult | undefined>,
     ]);
 
     gitStatus = buildGitStatus(statusResult, diffResult);
@@ -196,7 +219,7 @@ export async function refreshGitStatus(): Promise<void> {
     // If another refresh was requested while this one was in flight, run it now
     if (gitRefreshPending) {
       gitRefreshPending = false;
-      refreshGitStatus();
+      queueMicrotask(() => refreshGitStatus());
     }
   }
 }
@@ -220,6 +243,7 @@ export function debouncedRefreshGitStatus(): void {
  */
 export function clearGitState(): void {
   gitStatus = null;
+  gitInstance = undefined;
   gitRefreshPending = false;
   if (debounceTimer !== undefined) {
     clearTimeout(debounceTimer);

@@ -27,14 +27,3 @@ export interface GitStatus {
   /** Per-file details */
   files: FileChange[];
 }
-
-/** JSON-serializable value for setStatus("pi-git", ...) contract with pi-powerline */
-export interface PiGitStatusValue {
-  cwd: string;
-  branch: string;
-  insertions: number;
-  deletions: number;
-  addedCount: number;
-  modifiedCount: number;
-  deletedCount: number;
-}
