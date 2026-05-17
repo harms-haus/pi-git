@@ -273,7 +273,6 @@ describe("pi-git extension", () => {
         customType: "pi-git-summary",
         content: expect.any(String),
         display: true,
-        excludeFromContext: true,
       },
       { triggerTurn: false },
     );

@@ -195,7 +195,6 @@ export default function (pi: ExtensionAPI): void {
           deletedCount: status.deletedCount,
         }),
         display: true,
-        excludeFromContext: true,
       },
       { triggerTurn: false },
     );
