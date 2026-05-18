@@ -67,7 +67,9 @@ function buildDiffMap(diff: DiffResult): Map<string, { insertions: number; delet
 }
 
 export function buildGitStatus(status: StatusResult, diff?: DiffResult): GitStatus {
-  const diffMap = diff ? buildDiffMap(diff) : new Map<string, { insertions: number; deletions: number }>();
+  const diffMap = diff
+    ? buildDiffMap(diff)
+    : new Map<string, { insertions: number; deletions: number }>();
 
   const files: FileChange[] = [];
   let totalInsertions = 0;
@@ -227,7 +229,9 @@ export async function refreshGitStatus(): Promise<void> {
     // If another refresh was requested while this one was in flight, run it now
     if (gitRefreshPending) {
       gitRefreshPending = false;
-      queueMicrotask(() => { void refreshGitStatus(); });
+      queueMicrotask(() => {
+        void refreshGitStatus();
+      });
     }
   }
 }

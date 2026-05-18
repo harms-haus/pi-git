@@ -43,9 +43,13 @@ function isGitSummaryPayload(value: unknown): value is GitSummaryPayload {
   return Array.isArray(obj.files);
 }
 
-function renderFileLine(f: GitSummaryPayload["files"][number], theme: { fg: (color: ThemeColor, text: string) => string }): string {
+function renderFileLine(
+  f: GitSummaryPayload["files"][number],
+  theme: { fg: (color: ThemeColor, text: string) => string },
+): string {
   const icon = STATUS_ICONS[f.status] ?? "~";
-  const iconColor: ThemeColor = f.status === "A" ? "success" : f.status === "D" ? "error" : "warning";
+  const iconColor: ThemeColor =
+    f.status === "A" ? "success" : f.status === "D" ? "error" : "warning";
   const parts: string[] = [theme.fg(iconColor, icon), " ", theme.fg("dim", f.file)];
   let countParts = formatCounts(f.insertions, f.deletions).map((c) =>
     c.startsWith("+") ? theme.fg("success", c) : theme.fg("error", c),
@@ -60,7 +64,10 @@ function renderFileLine(f: GitSummaryPayload["files"][number], theme: { fg: (col
   return parts.join("");
 }
 
-function renderOverflowSummary(typed: GitSummaryPayload, displayFiles: GitSummaryPayload["files"]): string {
+function renderOverflowSummary(
+  typed: GitSummaryPayload,
+  displayFiles: GitSummaryPayload["files"],
+): string {
   const remaining = (typed.totalFiles ?? typed.files.length) - MAX_DISPLAY_FILES;
   const displayedAdded = displayFiles.filter((f) => f.status === "A").length;
   const displayedModified = displayFiles.filter((f) => f.status === "M").length;
@@ -76,7 +83,10 @@ function renderOverflowSummary(typed: GitSummaryPayload, displayFiles: GitSummar
   return `... and ${remaining} more${remDesc}`;
 }
 
-function renderGitSummary(message: { content: string }, theme: { fg: (color: ThemeColor, text: string) => string }): Text {
+function renderGitSummary(
+  message: { content: string },
+  theme: { fg: (color: ThemeColor, text: string) => string },
+): Text {
   try {
     const parsed: unknown = JSON.parse(message.content);
 
@@ -95,9 +105,7 @@ function renderGitSummary(message: { content: string }, theme: { fg: (color: The
 
     // Build header line
     const headerParts: string[] = [];
-    headerParts.push(
-      theme.fg("muted", `${totalFiles} file${totalFiles !== 1 ? "s" : ""} changed`),
-    );
+    headerParts.push(theme.fg("muted", `${totalFiles} file${totalFiles !== 1 ? "s" : ""} changed`));
     const headerCounts = formatCounts(totalIns, totalDel).map((c) =>
       c.startsWith("+") ? theme.fg("success", c) : theme.fg("error", c),
     );
@@ -124,7 +132,9 @@ function handleSessionChange(ctx: ExtensionContext) {
   }
   clearGitState();
   stopWatcher();
-  startWatcher(ctx.cwd, () => { debouncedRefreshGitStatus(); }).catch(() => {});
+  startWatcher(ctx.cwd, () => {
+    debouncedRefreshGitStatus();
+  }).catch(() => {});
   void refreshGitStatus();
 }
 

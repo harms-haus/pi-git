@@ -267,7 +267,9 @@ describe("watcher", () => {
     });
 
     it("is safe to call when no watcher is active", () => {
-      expect(() => { stopWatcher(); }).not.toThrow();
+      expect(() => {
+        stopWatcher();
+      }).not.toThrow();
     });
   });
 
