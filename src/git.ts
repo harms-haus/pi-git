@@ -1,7 +1,7 @@
 import { isAbsolute } from "node:path";
 import { simpleGit } from "simple-git";
 import { shortenPath } from "./format";
-import { currentCtx, currentCwd } from "./state";
+import { currentCwd, getSafeCtx } from "./state";
 import type { GitStatus, FileChange } from "./types";
 import type { StatusResult, DiffResult, FileStatusResult } from "simple-git";
 
@@ -141,7 +141,7 @@ let debounceTimer: ReturnType<typeof setTimeout> | undefined;
  */
 /** @internal */
 function updateFooterLabel(): void {
-  const ctx = currentCtx;
+  const ctx = getSafeCtx();
   if (!ctx || !ctx.ui) {
     return;
   }
@@ -207,6 +207,11 @@ export async function refreshGitStatus(): Promise<void> {
       git.status(),
       git.diffSummary("HEAD").catch(() => undefined) as Promise<DiffResult | undefined>,
     ]);
+
+    // Re-validate ctx after async work — session may have been replaced
+    if (!getSafeCtx()) {
+      return;
+    }
 
     gitStatus = buildGitStatus(statusResult, diffResult);
     updateFooterLabel();

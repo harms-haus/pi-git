@@ -22,6 +22,7 @@ vi.mock("../state", () => ({
   setApi: vi.fn(),
   safeUpdateCtx: vi.fn(() => mockSafeUpdateCtxResult),
   resetState: vi.fn(),
+  getSafeCtx: vi.fn(() => ({ cwd: "/mock" })),
 }));
 
 // --- Mock: ../git ---

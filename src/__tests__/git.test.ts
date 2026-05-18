@@ -31,6 +31,7 @@ vi.mock("../state", () => ({
   get currentCwd() {
     return mockState.currentCwd;
   },
+  getSafeCtx: () => mockState.currentCtx,
 }));
 
 vi.mock("../format", () => ({

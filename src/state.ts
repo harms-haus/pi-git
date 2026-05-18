@@ -25,6 +25,28 @@ export function safeUpdateCtx(ctx: ExtensionContext): boolean {
   }
 }
 
+export function isCtxStale(ctx: ExtensionContext): boolean {
+  try {
+    void ctx.cwd;
+    return false;
+  } catch (e) {
+    if (isStaleError(e)) {
+      return true;
+    }
+    throw e;
+  }
+}
+
+export function getSafeCtx(): ExtensionContext | undefined {
+  if (!currentCtx) return undefined;
+  if (isCtxStale(currentCtx)) {
+    currentCtx = undefined;
+    currentCwd = undefined;
+    return undefined;
+  }
+  return currentCtx;
+}
+
 export function resetState(): void {
   currentCtx = undefined;
   currentCwd = undefined;

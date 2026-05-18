@@ -16,7 +16,7 @@ import {
 import { Text } from "@earendil-works/pi-tui";
 import { STATUS_ICONS, formatCounts } from "./constants";
 import { refreshGitStatus, debouncedRefreshGitStatus, clearGitState, gitStatus } from "./git";
-import { setApi, safeUpdateCtx, resetState } from "./state";
+import { setApi, safeUpdateCtx, resetState, getSafeCtx } from "./state";
 import { startWatcher, stopWatcher } from "./watcher";
 
 const MAX_SEND_FILES = 20;
@@ -175,6 +175,9 @@ export default function (pi: ExtensionAPI): void {
     // Force a fresh read before reading gitStatus to avoid stale data
     // from the debounced refresh triggered by turn_end.
     await refreshGitStatus();
+    if (!getSafeCtx()) {
+      return;
+    }
     const status = gitStatus;
     if (!status || status.files.length === 0) {
       return;
