@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 vi.mock("node:fs", async (importOriginal) => {
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
@@ -165,12 +166,8 @@ describe("watcher", () => {
     it("creates watchers for subdirectories", async () => {
       const fw1 = fakeWatcher();
       const fw2 = fakeWatcher();
-      mockWatch
-        .mockReturnValueOnce(fw1 as never)
-        .mockReturnValueOnce(fw2 as never);
-      mockReaddir
-        .mockResolvedValueOnce([makeDirEntry("src", true)])
-        .mockResolvedValueOnce([]);
+      mockWatch.mockReturnValueOnce(fw1 as never).mockReturnValueOnce(fw2 as never);
+      mockReaddir.mockResolvedValueOnce([makeDirEntry("src", true)]).mockResolvedValueOnce([]);
       const onRefresh = vi.fn();
 
       await startWatcher("/tmp/repo", onRefresh);
@@ -236,9 +233,7 @@ describe("watcher", () => {
 
     it("caps watchers at MAX_WATCHERS (100)", async () => {
       // Generate 150 directory entries in the root to exceed the 100 cap
-      const rootEntries = Array.from({ length: 150 }, (_, i) =>
-        makeDirEntry(`dir${i}`, true),
-      );
+      const rootEntries = Array.from({ length: 150 }, (_, i) => makeDirEntry(`dir${i}`, true));
 
       // Each subdir returns empty (no further nesting)
       mockReaddir.mockResolvedValueOnce(rootEntries);
@@ -272,7 +267,7 @@ describe("watcher", () => {
     });
 
     it("is safe to call when no watcher is active", () => {
-      expect(() => stopWatcher()).not.toThrow();
+      expect(() => { stopWatcher(); }).not.toThrow();
     });
   });
 

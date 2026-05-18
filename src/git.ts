@@ -51,21 +51,23 @@ function mapFileStatus(f: FileStatusResult): FileChange["status"] {
  *
  * @internal Exported for testing only.
  */
-export function buildGitStatus(status: StatusResult, diff?: DiffResult): GitStatus {
-  // Build a lookup for diff stats by filepath
+function buildDiffMap(diff: DiffResult): Map<string, { insertions: number; deletions: number }> {
   const diffMap = new Map<string, { insertions: number; deletions: number }>();
-  if (diff) {
-    for (const f of diff.files) {
-      if ("binary" in f && f.binary) {
-        diffMap.set(f.file, { insertions: -1, deletions: -1 });
-      } else {
-        diffMap.set(f.file, {
-          insertions: f.insertions,
-          deletions: f.deletions,
-        });
-      }
+  for (const f of diff.files) {
+    if ("binary" in f && f.binary) {
+      diffMap.set(f.file, { insertions: -1, deletions: -1 });
+    } else {
+      diffMap.set(f.file, {
+        insertions: f.insertions,
+        deletions: f.deletions,
+      });
     }
   }
+  return diffMap;
+}
+
+export function buildGitStatus(status: StatusResult, diff?: DiffResult): GitStatus {
+  const diffMap = diff ? buildDiffMap(diff) : new Map<string, { insertions: number; deletions: number }>();
 
   const files: FileChange[] = [];
   let totalInsertions = 0;
@@ -91,12 +93,12 @@ export function buildGitStatus(status: StatusResult, diff?: DiffResult): GitStat
       deletions,
     });
 
-    // Counting
+    // Counting — mapFileStatus only returns "A", "D", or "M"
     if (fileStatus === "A") {
       addedCount++;
     } else if (fileStatus === "M") {
       modifiedCount++;
-    } else if (fileStatus === "D") {
+    } else {
       deletedCount++;
     }
 
@@ -142,6 +144,7 @@ let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 /** @internal */
 function updateFooterLabel(): void {
   const ctx = getSafeCtx();
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- ui can be undefined at runtime when hasUI is false
   if (!ctx || !ctx.ui) {
     return;
   }
@@ -205,7 +208,7 @@ export async function refreshGitStatus(): Promise<void> {
     // diffSummary('HEAD') compares working tree vs last commit (staged + unstaged)
     const [statusResult, diffResult] = await Promise.all([
       git.status(),
-      git.diffSummary("HEAD").catch(() => undefined) as Promise<DiffResult | undefined>,
+      git.diffSummary("HEAD").catch(() => undefined),
     ]);
 
     // Re-validate ctx after async work — session may have been replaced
@@ -224,7 +227,7 @@ export async function refreshGitStatus(): Promise<void> {
     // If another refresh was requested while this one was in flight, run it now
     if (gitRefreshPending) {
       gitRefreshPending = false;
-      queueMicrotask(() => refreshGitStatus());
+      queueMicrotask(() => { void refreshGitStatus(); });
     }
   }
 }
@@ -239,7 +242,7 @@ export function debouncedRefreshGitStatus(): void {
   }
   debounceTimer = setTimeout(() => {
     debounceTimer = undefined;
-    refreshGitStatus();
+    void refreshGitStatus();
   }, 500);
 }
 

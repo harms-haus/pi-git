@@ -107,7 +107,7 @@ export async function startWatcher(cwd: string, onRefresh: () => void): Promise<
       });
 
       w.on("error", (err) => {
-        console.warn("[pi-git] watcher error:", (err as Error).message);
+        console.warn("[pi-git] watcher error:", (err).message);
       });
 
       activeWatchers.add(w);
