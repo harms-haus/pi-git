@@ -332,9 +332,7 @@ describe("watcher", () => {
       const fw1 = fakeWatcher();
       const fw2 = fakeWatcher();
       mockWatch.mockReturnValueOnce(fw1 as never).mockReturnValueOnce(fw2 as never);
-      mockReaddir
-        .mockResolvedValueOnce([makeDirEntry("subdir", true)])
-        .mockResolvedValueOnce([]);
+      mockReaddir.mockResolvedValueOnce([makeDirEntry("subdir", true)]).mockResolvedValueOnce([]);
       // lstat says NOT a symlink, so subdir should be added to queue
       mockLstat.mockResolvedValue({ isSymbolicLink: () => false } as never);
       const onRefresh = vi.fn();
