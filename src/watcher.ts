@@ -3,6 +3,7 @@ import { lstat, readdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+const PATH_SEPARATOR_RE = /[/\\]/;
 const MAX_WATCHERS = 100;
 const IGNORED_DIRS = new Set([".git", "node_modules", ".cache", "dist", "coverage"]);
 
@@ -14,11 +15,11 @@ let epoch = 0;
  * Ignores paths containing .git, node_modules, .cache, dist, coverage in any segment.
  * @internal
  */
-export function isIgnoredPath(filename: string | undefined | null): boolean {
-  if (!filename) {
+export function isIgnoredPath(filename: string | null): boolean {
+  if (filename === null) {
     return true;
   }
-  const segments = filename.split(/[/\\]/);
+  const segments = filename.split(PATH_SEPARATOR_RE);
   return segments.some((s) => IGNORED_DIRS.has(s));
 }
 
@@ -45,6 +46,7 @@ async function collectWatchableDirs(root: string): Promise<string[]> {
 
   while (queue.length > 0 && results.length < MAX_WATCHERS) {
     const dir = queue.shift();
+    // Safety guard — unreachable because queue.length > 0 in while condition
     if (!dir) {
       break;
     }
@@ -57,6 +59,7 @@ async function collectWatchableDirs(root: string): Promise<string[]> {
       continue;
     }
 
+    const subdirs: string[] = [];
     for (const entry of entries) {
       if (results.length + queue.length >= MAX_WATCHERS) {
         break;
@@ -66,13 +69,14 @@ async function collectWatchableDirs(root: string): Promise<string[]> {
         continue;
       }
 
-      const absPath = join(dir, entry.name);
+      subdirs.push(join(dir, entry.name));
+    }
 
-      if (await isSymlink(absPath)) {
-        continue;
+    const symlinkChecks = await Promise.all(subdirs.map((p) => isSymlink(p)));
+    for (let i = 0; i < subdirs.length; i++) {
+      if (!symlinkChecks[i]) {
+        queue.push(subdirs[i]);
       }
-
-      queue.push(absPath);
     }
   }
 
@@ -108,6 +112,8 @@ export async function startWatcher(cwd: string, onRefresh: () => void): Promise<
 
       w.on("error", (err) => {
         console.warn("[pi-git] watcher error:", err.message);
+        w.close();
+        activeWatchers.delete(w);
       });
 
       activeWatchers.add(w);

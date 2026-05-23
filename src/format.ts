@@ -4,7 +4,10 @@
 export function shortenPath(path: string): string {
   const home = process.env.HOME || process.env.USERPROFILE || "";
   if (home && path.startsWith(home)) {
-    return `~${path.slice(home.length)}`;
+    const rest = path.slice(home.length);
+    if (rest === "" || rest[0] === "/" || rest[0] === "\\") {
+      return `~${rest}`;
+    }
   }
   return path;
 }

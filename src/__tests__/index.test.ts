@@ -42,7 +42,7 @@ vi.mock("../watcher", () => ({
 }));
 
 // --- Import SUT AFTER all mocks ---
-import extension from "../index";
+import extension, { resetRegistration } from "../index";
 import {
   isBashToolResult,
   isEditToolResult,
@@ -78,6 +78,7 @@ describe("pi-git extension", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetRegistration();
     mockGitStatus = null;
     mockSafeUpdateCtxResult = true;
     mockPi = makeMockPi();
@@ -107,10 +108,10 @@ describe("pi-git extension", () => {
     expect(setApi).toHaveBeenCalledWith(mockPi);
   });
 
-  // ---- session_start handler ---------------------------------------------
+  // ---- session_start / session_tree handler (shared handleSessionChange) ---
 
-  it("session_start starts watcher and triggers refresh", () => {
-    const handler = getHandler(mockPi, "session_start");
+  it.each(["session_start", "session_tree"])("%s starts watcher and triggers refresh", (event) => {
+    const handler = getHandler(mockPi, event);
     const ctx = { cwd: "/tmp/repo" };
     handler({}, ctx);
 
@@ -119,35 +120,33 @@ describe("pi-git extension", () => {
     expect(refreshGitStatus).toHaveBeenCalled();
   });
 
-  it("session_start does nothing when safeUpdateCtx returns false", () => {
-    mockSafeUpdateCtxResult = false;
+  it.each(["session_start", "session_tree"])(
+    "%s does nothing when safeUpdateCtx returns false",
+    (event) => {
+      mockSafeUpdateCtxResult = false;
+      const handler = getHandler(mockPi, event);
+      const ctx = { cwd: "/tmp/repo" };
+      handler({}, ctx);
+
+      expect(clearGitState).not.toHaveBeenCalled();
+      expect(startWatcher).not.toHaveBeenCalled();
+    },
+  );
+
+  it("logs warning when startWatcher rejects", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    (startWatcher as unknown as Mock).mockRejectedValue(new Error("watcher boom"));
+
     const handler = getHandler(mockPi, "session_start");
     const ctx = { cwd: "/tmp/repo" };
     handler({}, ctx);
 
-    expect(clearGitState).not.toHaveBeenCalled();
-    expect(startWatcher).not.toHaveBeenCalled();
-  });
+    // Allow the rejected promise to settle
+    await vi.waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith("[pi-git] watcher failed to start:", expect.any(Error));
+    });
 
-  // ---- session_tree handler ----------------------------------------------
-
-  it("session_tree starts watcher and triggers refresh", () => {
-    const handler = getHandler(mockPi, "session_tree");
-    const ctx = { cwd: "/tmp/repo" };
-    handler({}, ctx);
-
-    expect(stopWatcher).toHaveBeenCalled();
-    expect(startWatcher).toHaveBeenCalledWith("/tmp/repo", expect.any(Function));
-    expect(refreshGitStatus).toHaveBeenCalled();
-  });
-
-  it("session_tree does nothing when safeUpdateCtx returns false", () => {
-    mockSafeUpdateCtxResult = false;
-    const handler = getHandler(mockPi, "session_tree");
-    const ctx = { cwd: "/tmp/repo" };
-    handler({}, ctx);
-
-    expect(clearGitState).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 
   // ---- session_shutdown handler ------------------------------------------
@@ -218,7 +217,7 @@ describe("pi-git extension", () => {
 
     const handler = getHandler(mockPi, "tool_result");
     const ctx = { cwd: "/tmp/repo" };
-    handler({ toolName: "read" }, ctx);
+    handler({ toolName: "read_file" }, ctx);
 
     expect(debouncedRefreshGitStatus).not.toHaveBeenCalled();
   });
@@ -336,6 +335,27 @@ describe("pi-git extension", () => {
     );
     expect(sentContent.files).toHaveLength(20);
     expect(sentContent.totalFiles).toBe(60);
+  });
+
+  it("agent_end swallows sendMessage errors without rejecting", async () => {
+    mockGitStatus = {
+      branch: "main",
+      totalInsertions: 5,
+      totalDeletions: 0,
+      addedCount: 1,
+      modifiedCount: 0,
+      deletedCount: 0,
+      files: [{ file: "src/foo.ts", status: "A", insertions: 5, deletions: 0 }],
+    };
+    mockPi.sendMessage.mockImplementation(() => {
+      throw new Error("session closed");
+    });
+
+    const handler = getHandler(mockPi, "agent_end");
+
+    // Should resolve without throwing
+    await expect(handler()).resolves.toBeUndefined();
+    expect(mockPi.sendMessage).toHaveBeenCalled();
   });
 
   // ---- Message renderer --------------------------------------------------
@@ -607,6 +627,32 @@ describe("pi-git extension", () => {
 
       // All displayed 20 files are M, so remaining = 0
       expect(theme.fg).toHaveBeenCalledWith("dim", "... and 5 more");
+    });
+
+    it("renders (binary) for files with insertions:-1 and deletions:-1", () => {
+      const content = JSON.stringify({
+        files: [{ file: "image.png", status: "A", insertions: -1, deletions: -1 }],
+        totalFiles: 1,
+        totalInsertions: 0,
+        totalDeletions: 0,
+      });
+
+      renderer({ content }, {}, theme);
+
+      expect(theme.fg).toHaveBeenCalledWith("dim", "(binary)");
+    });
+
+    it("returns warning text for payload without files array", () => {
+      const content = JSON.stringify({ totalFiles: 0 });
+
+      const result = renderer({ content }, {}, theme);
+
+      expect(Text).toHaveBeenCalledWith(
+        expect.stringContaining("Invalid git summary payload"),
+        0,
+        0,
+      );
+      expect(result).toBeDefined();
     });
   });
 });

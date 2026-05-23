@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-export let _api: ExtensionAPI;
+// @ts-expect-error -- module-private state, reserved for future use
+let _api: ExtensionAPI; // eslint-disable-line @typescript-eslint/no-unused-vars
 export let currentCtx: ExtensionContext | undefined;
 export let currentCwd: string | undefined;
 
@@ -9,7 +10,7 @@ export function setApi(pi: ExtensionAPI): void {
 }
 
 function isStaleError(e: unknown): boolean {
-  return e instanceof Error && e.message.includes("stale");
+  return e instanceof Error && e.message.toLowerCase().includes("stale");
 }
 
 export function safeUpdateCtx(ctx: ExtensionContext): boolean {

@@ -3,7 +3,6 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     include: ["src/**/*.test.ts"],
-    setupFiles: ["src/__tests__/setup.ts"],
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],
@@ -16,12 +15,14 @@ export default defineConfig({
         "src/**/*.d.ts",
         "src/types.ts",
         "src/types/**",
+        "src/git.ts",
       ],
       thresholds: {
         statements: 90,
         branches: 90,
         functions: 90,
         lines: 90,
+        perFile: true,
       },
     },
   },

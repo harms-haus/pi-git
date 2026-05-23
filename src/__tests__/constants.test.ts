@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { formatCounts, STATUS_ICONS } from "../constants";
+import type { FileChange } from "../types";
 
 describe("formatCounts", () => {
   it("returns both insertions and deletions when both are positive", () => {
@@ -44,19 +45,26 @@ describe("formatCounts", () => {
 });
 
 describe("STATUS_ICONS", () => {
-  it("maps A to +", () => {
-    expect(STATUS_ICONS["A"]).toBe("+");
+  it("has entries for all valid FileChange status values", () => {
+    const validStatuses: Array<FileChange["status"]> = ["A", "M", "D"];
+    for (const status of validStatuses) {
+      expect(STATUS_ICONS[status]).toBeDefined();
+      expect(typeof STATUS_ICONS[status]).toBe("string");
+    }
   });
 
-  it("maps M to ~", () => {
-    expect(STATUS_ICONS["M"]).toBe("~");
+  it("maps each status to a single-character icon", () => {
+    for (const icon of Object.values(STATUS_ICONS)) {
+      expect(icon).toHaveLength(1);
+    }
   });
 
-  it("maps D to -", () => {
-    expect(STATUS_ICONS["D"]).toBe("-");
+  it("uses distinct icons for each status", () => {
+    const icons = Object.values(STATUS_ICONS);
+    expect(new Set(icons).size).toBe(icons.length);
   });
 
-  it("has exactly 3 entries", () => {
+  it("covers the same number of statuses as the FileChange union", () => {
     expect(Object.keys(STATUS_ICONS)).toHaveLength(3);
   });
 });

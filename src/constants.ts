@@ -1,3 +1,5 @@
+import type { FileChange } from "./types";
+
 /**
  * pi-git Extension — Shared constants and utility functions
  *
@@ -5,7 +7,7 @@
  */
 
 /** Maps file change status letters to display characters. */
-export const STATUS_ICONS: Record<string, string> = {
+export const STATUS_ICONS: Record<FileChange["status"], string> = {
   A: "+",
   M: "~",
   D: "-",

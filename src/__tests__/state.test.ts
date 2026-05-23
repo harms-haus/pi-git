@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { setApi, safeUpdateCtx, resetState, _api, currentCtx, currentCwd } from "../state";
+import {
+  setApi,
+  safeUpdateCtx,
+  resetState,
+  currentCtx,
+  currentCwd,
+  isCtxStale,
+  getSafeCtx,
+} from "../state";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 describe("state", () => {
@@ -8,19 +16,11 @@ describe("state", () => {
   });
 
   describe("setApi", () => {
-    it("stores the API reference", () => {
+    it("does not throw", () => {
       const mockApi = { on: vi.fn() } as unknown as ExtensionAPI;
-      setApi(mockApi);
-      expect(_api).toBe(mockApi);
-    });
-
-    it("overwrites previous API reference", () => {
-      const mockApi1 = { on: vi.fn() } as unknown as ExtensionAPI;
-      const mockApi2 = { on: vi.fn() } as unknown as ExtensionAPI;
-      setApi(mockApi1);
-      expect(_api).toBe(mockApi1);
-      setApi(mockApi2);
-      expect(_api).toBe(mockApi2);
+      expect(() => {
+        setApi(mockApi);
+      }).not.toThrow();
     });
   });
 
@@ -59,6 +59,62 @@ describe("state", () => {
       expect(currentCwd).toBe("/tmp/repo1");
       safeUpdateCtx(ctx2);
       expect(currentCwd).toBe("/tmp/repo2");
+    });
+  });
+
+  describe("isCtxStale", () => {
+    it("returns false for valid context", () => {
+      const ctx = { cwd: "/valid/path" } as unknown as ExtensionContext;
+      expect(isCtxStale(ctx)).toBe(false);
+    });
+
+    it("returns true for stale context (cwd throws stale error)", () => {
+      const ctx = {
+        get cwd() {
+          throw new Error("stale context");
+        },
+      } as unknown as ExtensionContext;
+      expect(isCtxStale(ctx)).toBe(true);
+    });
+
+    it("re-throws non-stale errors", () => {
+      const ctx = {
+        get cwd() {
+          throw new Error("something else");
+        },
+      } as unknown as ExtensionContext;
+      expect(() => isCtxStale(ctx)).toThrow("something else");
+    });
+  });
+
+  describe("getSafeCtx", () => {
+    it("returns undefined when no currentCtx", () => {
+      resetState();
+      expect(getSafeCtx()).toBeUndefined();
+    });
+
+    it("returns context when valid", () => {
+      const ctx = { cwd: "/valid" } as unknown as ExtensionContext;
+      safeUpdateCtx(ctx);
+      expect(getSafeCtx()).toBe(ctx);
+    });
+
+    it("returns undefined and clears state for stale context", () => {
+      // Create a context that is valid when set but becomes stale
+      let shouldThrow = false;
+      const ctx = {
+        get cwd() {
+          if (shouldThrow) throw new Error("stale context");
+          return "/valid";
+        },
+      } as unknown as ExtensionContext;
+      safeUpdateCtx(ctx);
+      // Now make it stale
+      shouldThrow = true;
+      expect(getSafeCtx()).toBeUndefined();
+      // Verify state was cleared
+      expect(currentCtx).toBeUndefined();
+      expect(currentCwd).toBeUndefined();
     });
   });
 

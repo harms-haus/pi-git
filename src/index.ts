@@ -17,43 +17,31 @@ import { Text } from "@earendil-works/pi-tui";
 import { STATUS_ICONS, formatCounts } from "./constants";
 import { refreshGitStatus, debouncedRefreshGitStatus, clearGitState, gitStatus } from "./git";
 import { setApi, safeUpdateCtx, resetState, getSafeCtx } from "./state";
+import { type GitSummaryPayload, isGitSummaryPayload } from "./types";
 import { startWatcher, stopWatcher } from "./watcher";
 
 const MAX_SEND_FILES = 20;
 const MAX_DISPLAY_FILES = 20;
 
-interface GitSummaryPayload {
-  files: Array<{
-    file: string;
-    status: string;
-    insertions: number;
-    deletions: number;
-  }>;
-  totalFiles?: number;
-  totalInsertions?: number;
-  totalDeletions?: number;
-  addedCount?: number;
-  modifiedCount?: number;
-  deletedCount?: number;
-}
-
-function isGitSummaryPayload(value: unknown): value is GitSummaryPayload {
-  if (typeof value !== "object" || value === null) return false;
-  const obj = value as Record<string, unknown>;
-  return Array.isArray(obj.files);
+function formatCountsWithTheme(
+  insertions: number,
+  deletions: number,
+  theme: { fg: (color: ThemeColor, text: string) => string },
+): string[] {
+  return formatCounts(insertions, deletions).map((c) =>
+    c.startsWith("+") ? theme.fg("success", c) : theme.fg("error", c),
+  );
 }
 
 function renderFileLine(
   f: GitSummaryPayload["files"][number],
   theme: { fg: (color: ThemeColor, text: string) => string },
 ): string {
-  const icon = STATUS_ICONS[f.status] ?? "~";
+  const icon = (STATUS_ICONS as Record<string, string>)[f.status] ?? "~";
   const iconColor: ThemeColor =
     f.status === "A" ? "success" : f.status === "D" ? "error" : "warning";
   const parts: string[] = [theme.fg(iconColor, icon), " ", theme.fg("dim", f.file)];
-  let countParts = formatCounts(f.insertions, f.deletions).map((c) =>
-    c.startsWith("+") ? theme.fg("success", c) : theme.fg("error", c),
-  );
+  let countParts = formatCountsWithTheme(f.insertions, f.deletions, theme);
   if (f.insertions === -1 && f.deletions === -1) {
     countParts = [theme.fg("dim", "(binary)")];
   }
@@ -106,9 +94,7 @@ function renderGitSummary(
     // Build header line
     const headerParts: string[] = [];
     headerParts.push(theme.fg("muted", `${totalFiles} file${totalFiles !== 1 ? "s" : ""} changed`));
-    const headerCounts = formatCounts(totalIns, totalDel).map((c) =>
-      c.startsWith("+") ? theme.fg("success", c) : theme.fg("error", c),
-    );
+    const headerCounts = formatCountsWithTheme(totalIns, totalDel, theme);
     if (headerCounts.length > 0) {
       headerParts.push(headerCounts.join(" "));
     }
@@ -134,11 +120,22 @@ function handleSessionChange(ctx: ExtensionContext) {
   stopWatcher();
   startWatcher(ctx.cwd, () => {
     debouncedRefreshGitStatus();
-  }).catch(() => {});
+  }).catch((err: unknown) => {
+    console.warn("[pi-git] watcher failed to start:", err);
+  });
   void refreshGitStatus();
 }
 
+let handlersRegistered = false;
+
+export function resetRegistration(): void {
+  handlersRegistered = false;
+}
+
 export default function (pi: ExtensionAPI): void {
+  if (handlersRegistered) return;
+  handlersRegistered = true;
+
   setApi(pi);
 
   pi.registerMessageRenderer("pi-git-summary", (message, _opts, theme) => {
@@ -201,21 +198,25 @@ export default function (pi: ExtensionAPI): void {
 
     const filesToSend = status.files.slice(0, MAX_SEND_FILES);
 
-    pi.sendMessage(
-      {
-        customType: "pi-git-summary",
-        content: JSON.stringify({
-          files: filesToSend,
-          totalFiles: status.files.length,
-          totalInsertions: status.totalInsertions,
-          totalDeletions: status.totalDeletions,
-          addedCount: status.addedCount,
-          modifiedCount: status.modifiedCount,
-          deletedCount: status.deletedCount,
-        }),
-        display: true,
-      },
-      { triggerTurn: false },
-    );
+    try {
+      pi.sendMessage(
+        {
+          customType: "pi-git-summary",
+          content: JSON.stringify({
+            files: filesToSend,
+            totalFiles: status.files.length,
+            totalInsertions: status.totalInsertions,
+            totalDeletions: status.totalDeletions,
+            addedCount: status.addedCount,
+            modifiedCount: status.modifiedCount,
+            deletedCount: status.deletedCount,
+          }),
+          display: true,
+        },
+        { triggerTurn: false },
+      );
+    } catch {
+      // Session may have already closed — ignore send errors
+    }
   });
 }

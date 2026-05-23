@@ -1,3 +1,26 @@
+/** Shape of the JSON payload stored in agent messages for git summary */
+export interface GitSummaryPayload {
+  files: Array<{
+    file: string;
+    status: string;
+    insertions: number;
+    deletions: number;
+  }>;
+  totalFiles?: number;
+  totalInsertions?: number;
+  totalDeletions?: number;
+  addedCount?: number;
+  modifiedCount?: number;
+  deletedCount?: number;
+}
+
+/** Type guard for GitSummaryPayload */
+export function isGitSummaryPayload(value: unknown): value is GitSummaryPayload {
+  if (typeof value !== "object" || value === null) return false;
+  const obj = value as Record<string, unknown>;
+  return Array.isArray(obj.files);
+}
+
 /** Per-file change record */
 export interface FileChange {
   /** Relative path from repo root */

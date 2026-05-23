@@ -115,6 +115,31 @@ describe("watcher", () => {
       expect(onRefresh).not.toHaveBeenCalled();
     });
 
+    it("closes and removes the watcher on error", async () => {
+      const fw1 = fakeWatcher();
+      const fw2 = fakeWatcher();
+      mockWatch.mockReturnValueOnce(fw1 as never).mockReturnValueOnce(fw2 as never);
+      mockReaddir.mockResolvedValueOnce([makeDirEntry("src", true)]).mockResolvedValueOnce([]);
+      const onRefresh = vi.fn();
+
+      await startWatcher("/tmp/repo", onRefresh);
+
+      // Trigger error on the root watcher
+      const errorHandler = fw1.on.mock.calls.find((c) => c[0] === "error")![1];
+      const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      errorHandler(new Error("directory deleted"));
+      consoleSpy.mockRestore();
+
+      // The errored watcher should have been closed
+      expect(fw1.close).toHaveBeenCalledTimes(1);
+
+      // Now stop all watchers — fw2 should be closed, but fw1 should NOT
+      // be closed again (it was already removed from activeWatchers)
+      stopWatcher();
+      expect(fw2.close).toHaveBeenCalledTimes(1);
+      expect(fw1.close).toHaveBeenCalledTimes(1);
+    });
+
     it("registers an error handler on the watcher", async () => {
       const fw = fakeWatcher();
       mockWatch.mockReturnValue(fw as never);
@@ -177,20 +202,22 @@ describe("watcher", () => {
       expect(mockWatch).toHaveBeenCalledWith("/tmp/repo/src", expect.any(Function));
     });
 
-    it("skips ignored directories", async () => {
+    it("skips ignored directories and non-directory entries", async () => {
       const fw = fakeWatcher();
       mockWatch.mockReturnValue(fw as never);
       mockReaddir.mockResolvedValueOnce([
         makeDirEntry("node_modules", true),
         makeDirEntry(".git", true),
         makeDirEntry("src", true),
+        makeDirEntry("package.json", false),
+        makeDirEntry("README.md", false),
       ]);
       mockReaddir.mockResolvedValueOnce([]);
       const onRefresh = vi.fn();
 
       await startWatcher("/tmp/repo", onRefresh);
 
-      // root + src only (node_modules and .git skipped)
+      // root + src only (node_modules, .git, and file entries skipped)
       expect(mockWatch).toHaveBeenCalledTimes(2);
     });
 
@@ -250,6 +277,88 @@ describe("watcher", () => {
 
       // Should be capped at 100 watchers (root + 99 subdirs)
       expect(mockWatch).toHaveBeenCalledTimes(100);
+    });
+
+    it("bails if epoch changes during collectWatchableDirs", async () => {
+      let resolveReaddir: (value: string[]) => void;
+      const readdirPromise = new Promise<string[]>((resolve) => {
+        resolveReaddir = resolve;
+      });
+      mockReaddir.mockReturnValue(readdirPromise as never);
+
+      const fw = fakeWatcher();
+      mockWatch.mockReturnValue(fw as never);
+
+      // Start first watcher (epoch=1, hangs on readdir)
+      const startPromise1 = startWatcher("/dir1", vi.fn());
+
+      // Start second watcher while first is pending (epoch=2)
+      const startPromise2 = startWatcher("/dir2", vi.fn());
+
+      // Resolve all pending readdir calls with empty dirs
+      resolveReaddir!([]);
+
+      await Promise.all([startPromise1, startPromise2]);
+
+      // First watcher bailed (epoch mismatch), only second one created a watcher
+      expect(mockWatch).toHaveBeenCalledTimes(1);
+      expect(mockWatch).toHaveBeenCalledWith("/dir2", expect.any(Function));
+    });
+
+    it("handles lstat errors gracefully", async () => {
+      mockLstat.mockRejectedValue(new Error("ENOENT"));
+      mockReaddir.mockResolvedValue([]);
+      // Should not throw
+      await startWatcher("/test", vi.fn());
+    });
+
+    it("treats lstat errors as symlinks (skips subdirs with ENOENT)", async () => {
+      const fw = fakeWatcher();
+      mockWatch.mockReturnValue(fw as never);
+      // Root has a subdir "ghost"
+      mockReaddir.mockResolvedValueOnce([makeDirEntry("ghost", true)]);
+      // lstat throws for the subdir — isSymlink returns true, so ghost is skipped
+      mockLstat.mockRejectedValue(new Error("ENOENT"));
+      const onRefresh = vi.fn();
+
+      await startWatcher("/tmp/repo", onRefresh);
+
+      // Only root watcher; ghost was skipped because isSymlink returned true on error
+      expect(mockWatch).toHaveBeenCalledTimes(1);
+      expect(mockWatch).toHaveBeenCalledWith("/tmp/repo", expect.any(Function));
+    });
+
+    it("adds non-symlink directories to the queue", async () => {
+      const fw1 = fakeWatcher();
+      const fw2 = fakeWatcher();
+      mockWatch.mockReturnValueOnce(fw1 as never).mockReturnValueOnce(fw2 as never);
+      mockReaddir
+        .mockResolvedValueOnce([makeDirEntry("subdir", true)])
+        .mockResolvedValueOnce([]);
+      // lstat says NOT a symlink, so subdir should be added to queue
+      mockLstat.mockResolvedValue({ isSymbolicLink: () => false } as never);
+      const onRefresh = vi.fn();
+
+      await startWatcher("/tmp/repo", onRefresh);
+
+      // Both root and subdir should get watchers
+      expect(mockWatch).toHaveBeenCalledTimes(2);
+      expect(mockWatch).toHaveBeenCalledWith("/tmp/repo", expect.any(Function));
+      expect(mockWatch).toHaveBeenCalledWith("/tmp/repo/subdir", expect.any(Function));
+    });
+
+    it("calls stopWatcher when watch() throws in the outer try-catch", async () => {
+      // Make watch() throw after collectWatchableDirs returns dirs
+      mockReaddir.mockResolvedValueOnce([makeDirEntry("src", true)]).mockResolvedValueOnce([]);
+      mockLstat.mockResolvedValue({ isSymbolicLink: () => false } as never);
+      mockWatch.mockImplementation(() => {
+        throw new Error("watch not supported");
+      });
+
+      const onRefresh = vi.fn();
+
+      // Should not throw — outer catch calls stopWatcher
+      await expect(startWatcher("/tmp/repo", onRefresh)).resolves.toBeUndefined();
     });
   });
 
