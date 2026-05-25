@@ -13,7 +13,9 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
 
 // --- Mock: @earendil-works/pi-tui ---
 vi.mock("@earendil-works/pi-tui", () => ({
-  Text: vi.fn(function (...args: unknown[]) { return { _args: args }; }),
+  Text: vi.fn(function (...args: unknown[]) {
+    return { _args: args };
+  }),
 }));
 
 // --- Mock: ../state ---
