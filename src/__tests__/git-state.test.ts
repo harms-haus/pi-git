@@ -362,7 +362,7 @@ describe("updateFooterLabel", () => {
     updateFooterLabel();
 
     expect(setStatus).toHaveBeenCalledWith("pi-git", expect.any(String));
-    const jsonArg = setStatus.mock.calls[0][1];
+    const jsonArg = setStatus.mock.calls[0]![1]!;
     const parsed = JSON.parse(jsonArg);
     expect(parsed.branch).toBe("main");
     expect(parsed.insertions).toBe(5);

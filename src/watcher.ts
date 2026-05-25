@@ -73,11 +73,11 @@ async function collectWatchableDirs(root: string): Promise<string[]> {
     }
 
     const symlinkChecks = await Promise.all(subdirs.map((p) => isSymlink(p)));
-    for (let i = 0; i < subdirs.length; i++) {
+    subdirs.forEach((subdir, i) => {
       if (!symlinkChecks[i]) {
-        queue.push(subdirs[i]);
+        queue.push(subdir);
       }
-    }
+    });
   }
 
   return results;

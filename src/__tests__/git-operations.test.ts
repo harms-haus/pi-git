@@ -236,8 +236,8 @@ describe("buildGitStatus", () => {
 
     const result = buildGitStatus(status);
 
-    expect(result.files[0].insertions).toBe(0);
-    expect(result.files[0].deletions).toBe(0);
+    expect(result.files[0]!.insertions).toBe(0);
+    expect(result.files[0]!.deletions).toBe(0);
     expect(result.totalInsertions).toBe(0);
     expect(result.totalDeletions).toBe(0);
   });
@@ -248,8 +248,8 @@ describe("buildGitStatus", () => {
 
     const result = buildGitStatus(status, diff);
 
-    expect(result.files[0].insertions).toBe(-1);
-    expect(result.files[0].deletions).toBe(-1);
+    expect(result.files[0]!.insertions).toBe(-1);
+    expect(result.files[0]!.deletions).toBe(-1);
     // Binary files should not contribute to totals
     expect(result.totalInsertions).toBe(0);
     expect(result.totalDeletions).toBe(0);
@@ -334,8 +334,8 @@ describe("buildGitStatus", () => {
 
     const result = buildGitStatus(status, diff, untrackedDiffs);
 
-    expect(result.files[0].insertions).toBe(10);
-    expect(result.files[0].deletions).toBe(5);
+    expect(result.files[0]!.insertions).toBe(10);
+    expect(result.files[0]!.deletions).toBe(5);
     expect(result.totalInsertions).toBe(10);
     expect(result.totalDeletions).toBe(5);
   });

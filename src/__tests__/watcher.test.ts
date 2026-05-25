@@ -88,7 +88,8 @@ describe("watcher", () => {
       await startWatcher("/tmp/repo", onRefresh);
 
       // Access the callback passed as the 2nd argument to watch()
-      const callback = mockWatch.mock.calls[0][1] as (
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+      const callback = mockWatch.mock.calls[0]![1]! as (
         event: string,
         filename: string | null,
       ) => void;
@@ -105,7 +106,8 @@ describe("watcher", () => {
 
       await startWatcher("/tmp/repo", onRefresh);
 
-      const callback = mockWatch.mock.calls[0][1] as (
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+      const callback = mockWatch.mock.calls[0]![1]! as (
         event: string,
         filename: string | null,
       ) => void;

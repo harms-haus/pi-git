@@ -13,7 +13,7 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
 
 // --- Mock: @earendil-works/pi-tui ---
 vi.mock("@earendil-works/pi-tui", () => ({
-  Text: vi.fn((...args: unknown[]) => ({ _args: args })),
+  Text: vi.fn(function (...args: unknown[]) { return { _args: args }; }),
 }));
 
 // --- Mock: ../state ---
@@ -278,7 +278,7 @@ describe("pi-git extension", () => {
     );
 
     const sentContent = JSON.parse(
-      (mockPi.sendMessage.mock.calls[0][0] as { content: string }).content,
+      (mockPi.sendMessage.mock.calls[0]![0]! as { content: string }).content,
     );
     expect(sentContent.totalFiles).toBe(1);
     expect(sentContent.totalInsertions).toBe(5);
@@ -331,7 +331,7 @@ describe("pi-git extension", () => {
     await handler();
 
     const sentContent = JSON.parse(
-      (mockPi.sendMessage.mock.calls[0][0] as { content: string }).content,
+      (mockPi.sendMessage.mock.calls[0]![0]! as { content: string }).content,
     );
     expect(sentContent.files).toHaveLength(20);
     expect(sentContent.totalFiles).toBe(60);
