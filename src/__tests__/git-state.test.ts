@@ -4,8 +4,7 @@ import {
   clearGitState,
   setGitStatus,
   setGitInstance,
-  setGitRefreshInFlight,
-  setGitRefreshPending,
+  setRefreshChain,
   setDebounceTimer,
   incrementRefreshEpoch,
   updateFooterLabel,
@@ -73,20 +72,10 @@ describe("clearGitState", () => {
     expect(gitStatus).toBeNull();
   });
 
-  it("resets gitRefreshInFlight to false", () => {
-    setGitRefreshInFlight(true);
+  it("resets refreshChain to resolved promise", () => {
     clearGitState();
 
-    // Verify idempotent
-    clearGitState();
-    expect(gitStatus).toBeNull();
-  });
-
-  it("resets gitRefreshPending to false", () => {
-    setGitRefreshPending(true);
-    clearGitState();
-
-    clearGitState();
+    // No throw means success
     expect(gitStatus).toBeNull();
   });
 
@@ -190,48 +179,17 @@ describe("setGitInstance", () => {
 });
 
 // ---------------------------------------------------------------------------
-// setGitRefreshInFlight
+// setRefreshChain
 // ---------------------------------------------------------------------------
 
-describe("setGitRefreshInFlight", () => {
+describe("setRefreshChain", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clearGitState();
   });
 
-  it("sets refresh in flight to true", () => {
-    setGitRefreshInFlight(true);
-    setGitRefreshInFlight(true);
-
-    expect(gitStatus).toBeNull();
-  });
-
-  it("sets refresh in flight to false", () => {
-    setGitRefreshInFlight(false);
-
-    expect(gitStatus).toBeNull();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// setGitRefreshPending
-// ---------------------------------------------------------------------------
-
-describe("setGitRefreshPending", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    clearGitState();
-  });
-
-  it("sets refresh pending to true", () => {
-    setGitRefreshPending(true);
-
-    expect(gitStatus).toBeNull();
-  });
-
-  it("sets refresh pending to false", () => {
-    setGitRefreshPending(false);
-
+  it("sets refresh chain to a promise", () => {
+    setRefreshChain(Promise.resolve());
     expect(gitStatus).toBeNull();
   });
 });

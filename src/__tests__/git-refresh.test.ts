@@ -8,12 +8,11 @@ import type { GitStatus } from "../types";
 // ---------------------------------------------------------------------------
 
 let mockCurrentCwd: string | undefined = "/tmp/repo";
-let mockGitRefreshInFlight = false;
-let mockGitRefreshPending = false;
 let mockDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 let mockRefreshEpoch = 0;
 let mockGitInstance: ReturnType<typeof SimpleGitFn> | undefined;
 let mockGitStatus: GitStatus | null = null;
+let mockRefreshChain: Promise<void> = Promise.resolve();
 
 // simple-git mock functions
 const mockStatus = vi.fn();
@@ -24,8 +23,7 @@ const mockCheckIsRepo = vi.fn();
 const setterCalls = {
   setGitStatus: [] as Array<GitStatus | null>,
   setGitInstance: [] as Array<unknown>,
-  setGitRefreshInFlight: [] as boolean[],
-  setGitRefreshPending: [] as boolean[],
+  setRefreshChain: [] as Array<Promise<void>>,
   setDebounceTimer: [] as Array<ReturnType<typeof setTimeout> | undefined>,
 };
 
@@ -53,6 +51,7 @@ vi.mock("../git-operations", () => ({
   buildGitStatus: (...args: unknown[]) => mockBuildGitStatus(...args),
   mapFileStatus: vi.fn(),
   buildDiffMap: vi.fn(),
+  getUntrackedFileDiffs: vi.fn(),
 }));
 
 // ---------------------------------------------------------------------------
@@ -67,11 +66,8 @@ vi.mock("../git-state", () => ({
   get gitInstance() {
     return mockGitInstance;
   },
-  get gitRefreshInFlight() {
-    return mockGitRefreshInFlight;
-  },
-  get gitRefreshPending() {
-    return mockGitRefreshPending;
+  get refreshChain() {
+    return mockRefreshChain;
   },
   get debounceTimer() {
     return mockDebounceTimer;
@@ -91,13 +87,9 @@ vi.mock("../git-state", () => ({
     setterCalls.setGitInstance.push(v);
     mockGitInstance = v as ReturnType<typeof SimpleGitFn>;
   },
-  setGitRefreshInFlight: (v: boolean) => {
-    setterCalls.setGitRefreshInFlight.push(v);
-    mockGitRefreshInFlight = v;
-  },
-  setGitRefreshPending: (v: boolean) => {
-    setterCalls.setGitRefreshPending.push(v);
-    mockGitRefreshPending = v;
+  setRefreshChain: (p: Promise<void>) => {
+    setterCalls.setRefreshChain.push(p);
+    mockRefreshChain = p;
   },
   setDebounceTimer: (v: ReturnType<typeof setTimeout> | undefined) => {
     setterCalls.setDebounceTimer.push(v);
@@ -110,8 +102,7 @@ vi.mock("../git-state", () => ({
   clearGitState: vi.fn(() => {
     mockGitStatus = null;
     mockGitInstance = undefined;
-    mockGitRefreshInFlight = false;
-    mockGitRefreshPending = false;
+    mockRefreshChain = Promise.resolve();
     mockRefreshEpoch++;
   }),
 }));
@@ -120,14 +111,9 @@ vi.mock("../git-state", () => ({
 // Mock: ../state
 // ---------------------------------------------------------------------------
 
-let mockSafeCtx: unknown = { ui: { setStatus: vi.fn() } };
-
 vi.mock("../state", () => ({
   get currentCwd() {
     return mockCurrentCwd;
-  },
-  getSafeCtx: () => {
-    return mockSafeCtx;
   },
 }));
 
@@ -174,19 +160,16 @@ describe("refreshGitStatus", () => {
 
     // Reset mutable mock state
     mockCurrentCwd = "/tmp/repo";
-    mockGitRefreshInFlight = false;
-    mockGitRefreshPending = false;
     mockDebounceTimer = undefined;
     mockRefreshEpoch = 0;
     mockGitInstance = undefined;
     mockGitStatus = null;
-    mockSafeCtx = { ui: { setStatus: vi.fn() } };
+    mockRefreshChain = Promise.resolve();
 
     // Reset tracked setter calls
     setterCalls.setGitStatus = [];
     setterCalls.setGitInstance = [];
-    setterCalls.setGitRefreshInFlight = [];
-    setterCalls.setGitRefreshPending = [];
+    setterCalls.setRefreshChain = [];
     setterCalls.setDebounceTimer = [];
 
     // Default mock implementations
@@ -297,19 +280,6 @@ describe("refreshGitStatus", () => {
     expect(mockBuildGitStatus).toHaveBeenCalledWith(expect.anything(), undefined, undefined);
   });
 
-  // --- Stale ctx ---
-
-  it("returns early when ctx becomes stale after async work", async () => {
-    mockSafeCtx = undefined;
-
-    await refreshGitStatus();
-
-    // Should NOT have stored the built status
-    expect(setterCalls.setGitStatus).not.toContainEqual(
-      expect.objectContaining({ branch: "main" }),
-    );
-  });
-
   // --- Stale epoch ---
 
   it("returns early when epoch changed during async work", async () => {
@@ -374,68 +344,50 @@ describe("refreshGitStatus", () => {
 
   // --- Error handling ---
 
-  it("clears status on unexpected error", async () => {
+  it("propagates error when checkIsRepo rejects", async () => {
     mockCheckIsRepo.mockRejectedValue(new Error("catastrophic failure"));
 
-    await refreshGitStatus();
-
-    expect(setterCalls.setGitStatus).toContainEqual(null);
+    await expect(refreshGitStatus()).rejects.toThrow("catastrophic failure");
   });
 
-  it("updates footer on unexpected error", async () => {
-    mockCheckIsRepo.mockRejectedValue(new Error("catastrophic failure"));
+  // --- Promise chain: sequential execution ---
 
-    await refreshGitStatus();
-
-    const { updateFooterLabel } = await import("../git-state");
-    expect(updateFooterLabel).toHaveBeenCalled();
-  });
-
-  // --- In-flight guard ---
-
-  it("sets pending when refresh is already in flight", async () => {
-    mockGitRefreshInFlight = true;
-
-    await refreshGitStatus();
-
-    expect(setterCalls.setGitRefreshPending).toContain(true);
-    expect(mockCheckIsRepo).not.toHaveBeenCalled();
-  });
-
-  // --- Finally block: resets in-flight and triggers pending ---
-
-  it("resets gitRefreshInFlight to false in finally block", async () => {
-    await refreshGitStatus();
-
-    const flightCalls = setterCalls.setGitRefreshInFlight;
-    expect(flightCalls[flightCalls.length - 1]).toBe(false);
-  });
-
-  it("triggers pending refresh via microtask when pending was set", async () => {
+  it("chains concurrent calls so they run sequentially", async () => {
     let firstResolve: () => void;
-    mockCheckIsRepo.mockImplementation(
-      () =>
-        new Promise<boolean>((resolve) => {
-          firstResolve = () => {
-            resolve(true);
-          };
-        }),
-    );
+    let secondCalled = false;
+
+    // First call: block on checkIsRepo
+    mockCheckIsRepo
+      .mockImplementationOnce(
+        () =>
+          new Promise<boolean>((resolve) => {
+            firstResolve = () => resolve(true);
+          }),
+      )
+      .mockImplementationOnce(() => {
+        secondCalled = true;
+        return Promise.resolve(true);
+      });
 
     const firstRefresh = refreshGitStatus();
 
-    // While first is in-flight, trigger second (sets pending)
-    mockGitRefreshInFlight = true;
+    // Flush microtasks so executeRefresh runs and checkIsRepo gets called
+    await vi.advanceTimersByTimeAsync(0);
+
+    // While first is in-flight, start a second refresh
     const secondRefresh = refreshGitStatus();
 
-    // Resolve the first checkIsRepo
-    mockGitRefreshInFlight = false;
+    // Second should NOT have started yet (chained after first)
+    expect(secondCalled).toBe(false);
+
+    // Resolve the first checkIsRepo so the first refresh completes
     firstResolve!();
 
     await firstRefresh;
     await secondRefresh;
 
-    expect(setterCalls.setGitRefreshPending).toContain(false);
+    // Second should now have run
+    expect(secondCalled).toBe(true);
   });
 });
 
@@ -449,21 +401,18 @@ describe("debouncedRefreshGitStatus", () => {
     vi.useFakeTimers();
 
     // Reset mutable mock state
-    mockGitRefreshInFlight = false;
-    mockGitRefreshPending = false;
     mockDebounceTimer = undefined;
     mockRefreshEpoch = 0;
     mockGitInstance = undefined;
     mockGitStatus = null;
     mockCurrentCwd = "/tmp/repo";
-    mockSafeCtx = { ui: { setStatus: vi.fn() } };
+    mockRefreshChain = Promise.resolve();
 
     // Reset tracked setter calls
     setterCalls.setDebounceTimer = [];
     setterCalls.setGitStatus = [];
     setterCalls.setGitInstance = [];
-    setterCalls.setGitRefreshInFlight = [];
-    setterCalls.setGitRefreshPending = [];
+    setterCalls.setRefreshChain = [];
 
     // Default mock implementations for refreshGitStatus
     mockCheckIsRepo.mockResolvedValue(true);

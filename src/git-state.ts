@@ -15,8 +15,7 @@ export const DEBOUNCE_DELAY_MS = 500;
 
 export let gitStatus: GitStatus | null = null;
 export let gitInstance: ReturnType<typeof simpleGit> | undefined;
-export let gitRefreshInFlight = false;
-export let gitRefreshPending = false;
+export let refreshChain: Promise<void> = Promise.resolve();
 export let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 export let refreshEpoch = 0;
 
@@ -32,12 +31,8 @@ export function setGitInstance(instance: ReturnType<typeof simpleGit> | undefine
   gitInstance = instance;
 }
 
-export function setGitRefreshInFlight(value: boolean): void {
-  gitRefreshInFlight = value;
-}
-
-export function setGitRefreshPending(value: boolean): void {
-  gitRefreshPending = value;
+export function setRefreshChain(p: Promise<void>): void {
+  refreshChain = p;
 }
 
 export function setDebounceTimer(timer: ReturnType<typeof setTimeout> | undefined): void {
@@ -92,8 +87,7 @@ export function updateFooterLabel(): void {
 export function clearGitState(): void {
   gitStatus = null;
   gitInstance = undefined;
-  gitRefreshInFlight = false;
-  gitRefreshPending = false;
+  refreshChain = Promise.resolve();
   refreshEpoch++;
   if (debounceTimer !== undefined) {
     clearTimeout(debounceTimer);

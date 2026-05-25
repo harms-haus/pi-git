@@ -3,6 +3,7 @@ import type { GitStatus } from "../types";
 
 // --- Mutable mock state ---
 let mockGitStatus: GitStatus | null = null;
+let mockRefreshEpoch = 0;
 
 // --- Mock: @earendil-works/pi-coding-agent ---
 vi.mock("@earendil-works/pi-coding-agent", () => ({
@@ -34,6 +35,9 @@ vi.mock("../git", () => ({
   clearGitState: vi.fn(),
   get gitStatus() {
     return mockGitStatus;
+  },
+  get refreshEpoch() {
+    return mockRefreshEpoch;
   },
 }));
 
@@ -82,6 +86,7 @@ describe("pi-git extension", () => {
     vi.clearAllMocks();
     resetRegistration();
     mockGitStatus = null;
+    mockRefreshEpoch = 0;
     mockSafeUpdateCtxResult = true;
     mockPi = makeMockPi();
     extension(mockPi as unknown as Parameters<typeof extension>[0]);
@@ -337,6 +342,29 @@ describe("pi-git extension", () => {
     );
     expect(sentContent.files).toHaveLength(20);
     expect(sentContent.totalFiles).toBe(60);
+  });
+
+  it("agent_end does not send message when epoch changes during refresh", async () => {
+    mockGitStatus = {
+      branch: "main",
+      totalInsertions: 5,
+      totalDeletions: 0,
+      addedCount: 1,
+      modifiedCount: 0,
+      deletedCount: 0,
+      files: [{ file: "src/foo.ts", status: "A", insertions: 5, deletions: 0 }],
+    };
+
+    // Make refreshGitStatus increment the epoch to simulate a session change during refresh
+    (refreshGitStatus as unknown as Mock).mockImplementationOnce(() => {
+      mockRefreshEpoch = 2;
+    });
+    mockRefreshEpoch = 1;
+
+    const handler = getHandler(mockPi, "agent_end");
+    await handler();
+
+    expect(mockPi.sendMessage).not.toHaveBeenCalled();
   });
 
   it("agent_end swallows sendMessage errors without rejecting", async () => {

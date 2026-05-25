@@ -9,12 +9,12 @@ export {
   gitStatus,
   setGitStatus,
   setGitInstance,
-  setGitRefreshInFlight,
-  setGitRefreshPending,
+  setRefreshChain,
   setDebounceTimer,
   incrementRefreshEpoch,
   clearGitState,
   updateFooterLabel,
   DEBOUNCE_DELAY_MS,
+  refreshEpoch,
 } from "./git-state";
 export { refreshGitStatus, debouncedRefreshGitStatus } from "./git-refresh";

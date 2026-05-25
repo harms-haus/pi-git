@@ -15,8 +15,8 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { STATUS_ICONS, formatCounts } from "./constants";
-import { refreshGitStatus, debouncedRefreshGitStatus, clearGitState, gitStatus } from "./git";
-import { setApi, safeUpdateCtx, resetState, getSafeCtx } from "./state";
+import { refreshGitStatus, debouncedRefreshGitStatus, clearGitState, gitStatus, refreshEpoch } from "./git";
+import { setApi, safeUpdateCtx, resetState } from "./state";
 import { type GitSummaryPayload, isGitSummaryPayload } from "./types";
 import { startWatcher, stopWatcher } from "./watcher";
 
@@ -187,10 +187,11 @@ export default function (pi: ExtensionAPI): void {
   pi.on("agent_end", async () => {
     // Force a fresh read before reading gitStatus to avoid stale data
     // from the debounced refresh triggered by turn_end.
+    const myEpoch = refreshEpoch;
     await refreshGitStatus();
-    if (!getSafeCtx()) {
-      return;
-    }
+    // Guard against cross-session data leakage: if a new session started
+    // while we were refreshing, discard the result.
+    if (myEpoch !== refreshEpoch) return;
     const status = gitStatus;
     if (!status || status.files.length === 0) {
       return;
