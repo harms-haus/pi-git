@@ -358,13 +358,13 @@ describe("refreshGitStatus", () => {
 
     // First call: block on checkIsRepo
     mockCheckIsRepo
-      .mockImplementationOnce(
-        () => {
-          return new Promise<boolean>((resolve) => {
-            firstResolve = () => { resolve(true); };
-          });
-        },
-      )
+      .mockImplementationOnce(() => {
+        return new Promise<boolean>((resolve) => {
+          firstResolve = () => {
+            resolve(true);
+          };
+        });
+      })
       .mockImplementationOnce(() => {
         secondCalled = true;
         return Promise.resolve(true);
