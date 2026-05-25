@@ -15,7 +15,13 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { STATUS_ICONS, formatCounts } from "./constants";
-import { refreshGitStatus, debouncedRefreshGitStatus, clearGitState, gitStatus, refreshEpoch } from "./git";
+import {
+  refreshGitStatus,
+  debouncedRefreshGitStatus,
+  clearGitState,
+  gitStatus,
+  refreshEpoch,
+} from "./git";
 import { setApi, safeUpdateCtx, resetState } from "./state";
 import { type GitSummaryPayload, isGitSummaryPayload } from "./types";
 import { startWatcher, stopWatcher } from "./watcher";
