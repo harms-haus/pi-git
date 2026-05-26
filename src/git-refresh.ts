@@ -23,46 +23,53 @@ import { currentCwd } from "./state";
  * Execute a single refresh attempt. Runs sequentially via the promise chain.
  */
 async function executeRefresh(myEpoch: number): Promise<void> {
-  if (!_gitInstance) {
-    setGitInstance(simpleGit(currentCwd));
-  }
-  const git = _gitInstance;
+  try {
+    if (!_gitInstance) {
+      setGitInstance(simpleGit(currentCwd));
+    }
+    const git = _gitInstance;
 
-  if (!git) {
+    if (!git) {
+      setGitStatus(null);
+      updateFooterLabel();
+      return;
+    }
+
+    // Check if this is actually a git repo
+    const isRepo = await git.checkIsRepo();
+    if (!isRepo) {
+      setGitStatus(null);
+      updateFooterLabel();
+      return;
+    }
+
+    // Run status and diffSummary in parallel
+    // diffSummary('HEAD') compares working tree vs last commit (staged + unstaged)
+    const [statusResult, diffResult] = await Promise.all([
+      git.status(),
+      git.diffSummary("HEAD").catch(() => undefined),
+    ]);
+
+    // Abort if clearGitState() was called while we were awaiting results
+    if (myEpoch !== refreshEpoch) return;
+
+    // Compute diffs for untracked files
+    const untrackedFiles = statusResult.files
+      .filter((f) => f.working_dir === "?" || f.index === "?")
+      .map((f) => f.path);
+    const untrackedDiffs =
+      untrackedFiles.length > 0 ? await getUntrackedFileDiffs(git, untrackedFiles) : undefined;
+
+    if (myEpoch !== refreshEpoch) return;
+
+    setGitStatus(buildGitStatus(statusResult, diffResult ?? undefined, untrackedDiffs));
+    updateFooterLabel();
+  } catch (error) {
+    console.error("[pi-git] refresh failed:", error);
     setGitStatus(null);
     updateFooterLabel();
-    return;
+    throw error;
   }
-
-  // Check if this is actually a git repo
-  const isRepo = await git.checkIsRepo();
-  if (!isRepo) {
-    setGitStatus(null);
-    updateFooterLabel();
-    return;
-  }
-
-  // Run status and diffSummary in parallel
-  // diffSummary('HEAD') compares working tree vs last commit (staged + unstaged)
-  const [statusResult, diffResult] = await Promise.all([
-    git.status(),
-    git.diffSummary("HEAD").catch(() => undefined),
-  ]);
-
-  // Abort if clearGitState() was called while we were awaiting results
-  if (myEpoch !== refreshEpoch) return;
-
-  // Compute diffs for untracked files
-  const untrackedFiles = statusResult.files
-    .filter((f) => f.working_dir === "?" || f.index === "?")
-    .map((f) => f.path);
-  const untrackedDiffs =
-    untrackedFiles.length > 0 ? await getUntrackedFileDiffs(git, untrackedFiles) : undefined;
-
-  if (myEpoch !== refreshEpoch) return;
-
-  setGitStatus(buildGitStatus(statusResult, diffResult ?? undefined, untrackedDiffs));
-  updateFooterLabel();
 }
 
 /**
@@ -80,7 +87,7 @@ export async function refreshGitStatus(): Promise<void> {
 
   // Chain onto any previous refresh so we run sequentially
   const previous = refreshChain;
-  const myPromise = previous.then(() => executeRefresh(myEpoch));
+  const myPromise = previous.catch(() => {}).then(() => executeRefresh(myEpoch));
   setRefreshChain(myPromise);
   await myPromise;
 }

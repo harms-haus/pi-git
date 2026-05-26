@@ -350,6 +350,63 @@ describe("refreshGitStatus", () => {
     await expect(refreshGitStatus()).rejects.toThrow("catastrophic failure");
   });
 
+  it("handles checkIsRepo rejection gracefully (cleanup + re-throw)", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockCheckIsRepo.mockRejectedValue(new Error("repo check failed"));
+
+    await expect(refreshGitStatus()).rejects.toThrow("repo check failed");
+
+    // Cleanup should happen even though the error was thrown
+    const { updateFooterLabel } = await import("../git-state");
+    expect(updateFooterLabel).toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith("[pi-git] refresh failed:", expect.any(Error));
+    errorSpy.mockRestore();
+  });
+
+  it("handles git.status() rejection gracefully (cleanup + re-throw)", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockCheckIsRepo.mockResolvedValue(true);
+    mockStatus.mockRejectedValue(new Error("status failed"));
+
+    await expect(refreshGitStatus()).rejects.toThrow("status failed");
+
+    const { updateFooterLabel } = await import("../git-state");
+    expect(updateFooterLabel).toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalledWith("[pi-git] refresh failed:", expect.any(Error));
+    errorSpy.mockRestore();
+  });
+
+  it("recovers chain after a failed refresh", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    // First refresh fails
+    mockCheckIsRepo.mockRejectedValueOnce(new Error("first fails"));
+    await expect(refreshGitStatus()).rejects.toThrow("first fails");
+
+    // Second refresh should succeed (chain recovered)
+    mockCheckIsRepo.mockResolvedValueOnce(true);
+    mockStatus.mockResolvedValueOnce(makeStatusResult());
+    mockDiffSummary.mockResolvedValueOnce(makeDiffResult());
+    mockBuildGitStatus.mockReturnValueOnce({
+      branch: "main",
+      totalInsertions: 0,
+      totalDeletions: 0,
+      addedCount: 0,
+      modifiedCount: 0,
+      deletedCount: 0,
+      files: [],
+    });
+
+    // This MUST NOT reject — chain should have recovered
+    await expect(refreshGitStatus()).resolves.toBeUndefined();
+
+    const { updateFooterLabel } = await import("../git-state");
+    expect(updateFooterLabel).toHaveBeenCalled();
+    expect(mockBuildGitStatus).toHaveBeenCalled();
+
+    errorSpy.mockRestore();
+  });
+
   // --- Promise chain: sequential execution ---
 
   it("chains concurrent calls so they run sequentially", async () => {
