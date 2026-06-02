@@ -22,7 +22,7 @@ import {
   gitStatus,
   refreshEpoch,
 } from "./git";
-import { setApi, safeUpdateCtx, resetState } from "./state";
+import { safeUpdateCtx, resetState } from "./state";
 import { type GitSummaryPayload, isGitSummaryPayload } from "./types";
 import { startWatcher, stopWatcher } from "./watcher";
 
@@ -141,8 +141,6 @@ export function resetRegistration(): void {
 export default function (pi: ExtensionAPI): void {
   if (handlersRegistered) return;
   handlersRegistered = true;
-
-  setApi(pi);
 
   pi.registerMessageRenderer("pi-git-summary", (message, _opts, theme) => {
     return renderGitSummary({ content: message.content as string }, theme);

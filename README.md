@@ -73,7 +73,15 @@ The footer gracefully falls back to pi-powerline's built-in rendering when:
 - The working directory is not a git repository
 - The git status payload is invalid
 
+## Prerequisites
+
+- [Git](https://git-scm.com/) must be installed and available on `PATH`
+- Node.js ≥ 22
+- Works on Linux, macOS, and Windows
+
 ## Development
+
+CI runs on both Linux (Ubuntu) and Windows with Node.js 22 and 24.
 
 ```bash
 npm install          # Install dependencies

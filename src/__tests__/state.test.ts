@@ -1,6 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import {
-  setApi,
   safeUpdateCtx,
   resetState,
   currentCtx,
@@ -8,20 +7,11 @@ import {
   isCtxStale,
   getSafeCtx,
 } from "../state";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 describe("state", () => {
   beforeEach(() => {
     resetState();
-  });
-
-  describe("setApi", () => {
-    it("does not throw", () => {
-      const mockApi = { on: vi.fn() } as unknown as ExtensionAPI;
-      expect(() => {
-        setApi(mockApi);
-      }).not.toThrow();
-    });
   });
 
   describe("safeUpdateCtx", () => {

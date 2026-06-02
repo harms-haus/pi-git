@@ -1,6 +1,8 @@
 import type { GitStatus, FileChange } from "./types";
 import type { StatusResult, DiffResult, FileStatusResult, SimpleGit } from "simple-git";
 
+const GIT_NULL_DEVICE = process.platform === "win32" ? "NUL" : "/dev/null";
+
 // ---------------------------------------------------------------------------
 // Pure mapping functions (no side effects)
 // ---------------------------------------------------------------------------
@@ -126,7 +128,7 @@ export function buildGitStatus(
 }
 
 /**
- * Compute line counts for untracked files by diffing against /dev/null.
+ * Compute line counts for untracked files by diffing against the platform null device.
  * Caps at 20 files to avoid excessive git subprocess spawning.
  *
  * Note: This spawns one `git diff` subprocess per untracked file (up to 20).
@@ -146,7 +148,7 @@ export async function getUntrackedFileDiffs(
   const diffs = await Promise.all(
     filesToDiff.map(async (file) => {
       try {
-        const diff = await git.diffSummary(["--no-index", "--", "/dev/null", file]);
+        const diff = await git.diffSummary(["--no-index", "--", GIT_NULL_DEVICE, file]);
         return { file, insertions: diff.insertions, deletions: diff.deletions };
       } catch {
         // Binary file, permission denied, or other error — default to 0

@@ -8,10 +8,12 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         node-version: [22, 24]
+        os: [ubuntu-latest, windows-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -22,16 +24,30 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
 
-      - run: npm ci
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: npm ci
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        run: npm install
 
       - name: Type check
+        if: runner.os == 'Linux'
         run: npm run typecheck
 
       - name: Lint
+        if: runner.os == 'Linux'
         run: npm run lint
 
       - name: Format check
+        if: runner.os == 'Linux'
         run: npm run format:check
 
       - name: Test with coverage
+        if: runner.os == 'Linux'
         run: npm run test:coverage
+
+      - name: Test
+        if: runner.os == 'Windows'
+        run: npm test

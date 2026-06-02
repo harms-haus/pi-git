@@ -31,7 +31,8 @@ async function isSymlink(absPath: string): Promise<boolean> {
   try {
     const stats = await lstat(absPath);
     return stats.isSymbolicLink();
-  } catch {
+  } catch (e) {
+    console.warn("[pi-git] lstat failed for", absPath, e instanceof Error ? e.message : e);
     return true;
   }
 }
@@ -55,7 +56,8 @@ async function collectWatchableDirs(root: string): Promise<string[]> {
     let entries;
     try {
       entries = await readdir(dir, { withFileTypes: true });
-    } catch {
+    } catch (e) {
+      console.warn("[pi-git] readdir failed for", dir, e instanceof Error ? e.message : e);
       continue;
     }
 
@@ -118,8 +120,9 @@ export async function startWatcher(cwd: string, onRefresh: () => void): Promise<
 
       activeWatchers.add(w);
     }
-  } catch {
+  } catch (e) {
     // Directory may not exist or fs.watch may not be supported.
+    console.warn("[pi-git] watch failed:", e instanceof Error ? e.message : e);
     stopWatcher();
   }
 }

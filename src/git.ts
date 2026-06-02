@@ -1,10 +1,10 @@
 /**
  * pi-git Extension — Git operations barrel.
  *
- * Re-exports from the split modules for backward compatibility.
+ * Re-exports git state and refresh functions from split modules.
  */
 
-export { mapFileStatus, buildDiffMap, buildGitStatus } from "./git-operations";
+export { buildGitStatus } from "./git-operations";
 export {
   gitStatus,
   setGitStatus,

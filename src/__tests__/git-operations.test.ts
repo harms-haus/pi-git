@@ -7,6 +7,8 @@ import {
 } from "../git-operations";
 import type { StatusResult, FileStatusResult, DiffResult, SimpleGit } from "simple-git";
 
+const GIT_NULL_DEVICE = process.platform === "win32" ? "NUL" : "/dev/null";
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -362,8 +364,8 @@ describe("getUntrackedFileDiffs", () => {
     const result = await getUntrackedFileDiffs(mockGit, ["file1.ts", "file2.ts"]);
     expect(result.get("file1.ts")).toEqual({ insertions: 100, deletions: 0 });
     expect(result.get("file2.ts")).toEqual({ insertions: 50, deletions: 5 });
-    expect(mockDiffSummary).toHaveBeenCalledWith(["--no-index", "--", "/dev/null", "file1.ts"]);
-    expect(mockDiffSummary).toHaveBeenCalledWith(["--no-index", "--", "/dev/null", "file2.ts"]);
+    expect(mockDiffSummary).toHaveBeenCalledWith(["--no-index", "--", GIT_NULL_DEVICE, "file1.ts"]);
+    expect(mockDiffSummary).toHaveBeenCalledWith(["--no-index", "--", GIT_NULL_DEVICE, "file2.ts"]);
   });
 
   it("defaults to 0/0 on diff failure", async () => {

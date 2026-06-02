@@ -49,8 +49,6 @@ const mockBuildGitStatus = vi.fn();
 
 vi.mock("../git-operations", () => ({
   buildGitStatus: (...args: unknown[]) => mockBuildGitStatus(...args),
-  mapFileStatus: vi.fn(),
-  buildDiffMap: vi.fn(),
   getUntrackedFileDiffs: vi.fn(),
 }));
 

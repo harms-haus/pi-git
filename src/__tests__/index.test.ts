@@ -22,7 +22,6 @@ vi.mock("@earendil-works/pi-tui", () => ({
 // --- Mock: ../state ---
 let mockSafeUpdateCtxResult = true;
 vi.mock("../state", () => ({
-  setApi: vi.fn(),
   safeUpdateCtx: vi.fn(() => mockSafeUpdateCtxResult),
   resetState: vi.fn(),
   getSafeCtx: vi.fn(() => ({ cwd: "/mock" })),
@@ -54,7 +53,7 @@ import {
   isEditToolResult,
   isWriteToolResult,
 } from "@earendil-works/pi-coding-agent";
-import { setApi, resetState } from "../state";
+import { resetState } from "../state";
 import { refreshGitStatus, debouncedRefreshGitStatus, clearGitState } from "../git";
 import { startWatcher, stopWatcher } from "../watcher";
 import { Text } from "@earendil-works/pi-tui";
@@ -109,10 +108,6 @@ describe("pi-git extension", () => {
       "pi-git-summary",
       expect.any(Function),
     );
-  });
-
-  it("calls setApi with pi", () => {
-    expect(setApi).toHaveBeenCalledWith(mockPi);
   });
 
   // ---- session_start / session_tree handler (shared handleSessionChange) ---

@@ -54,6 +54,8 @@ function fakeWatcher() {
 }
 
 describe("watcher", () => {
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
     vi.clearAllMocks();
     stopWatcher();
@@ -61,10 +63,12 @@ describe("watcher", () => {
     mockLstat.mockResolvedValue({ isSymbolicLink: () => false } as never);
     mockExistsSync.mockReturnValue(true);
     mockHomedir.mockReturnValue("/home/user");
+    warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
   });
 
   afterEach(() => {
     stopWatcher();
+    warnSpy.mockRestore();
   });
 
   describe("startWatcher", () => {
@@ -128,9 +132,8 @@ describe("watcher", () => {
 
       // Trigger error on the root watcher
       const errorHandler = fw1.on.mock.calls.find((c) => c[0] === "error")![1];
-      const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       errorHandler(new Error("directory deleted"));
-      consoleSpy.mockRestore();
+      expect(warnSpy).toHaveBeenCalledWith("[pi-git] watcher error:", "directory deleted");
 
       // The errored watcher should have been closed
       expect(fw1.close).toHaveBeenCalledTimes(1);
@@ -162,10 +165,8 @@ describe("watcher", () => {
       await startWatcher("/tmp/repo", onRefresh);
 
       const errorHandler = fw.on.mock.calls.find((c) => c[0] === "error")![1];
-      const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       errorHandler(new Error("test error"));
-      expect(consoleSpy).toHaveBeenCalledWith("[pi-git] watcher error:", "test error");
-      consoleSpy.mockRestore();
+      expect(warnSpy).toHaveBeenCalledWith("[pi-git] watcher error:", "test error");
     });
 
     it("stops previous watchers before creating new ones", async () => {
@@ -188,6 +189,11 @@ describe("watcher", () => {
 
       // Should not throw
       await expect(startWatcher("/nonexistent", onRefresh)).resolves.toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[pi-git] readdir failed for",
+        "/nonexistent",
+        "not found",
+      );
     });
 
     it("creates watchers for subdirectories", async () => {
@@ -328,6 +334,11 @@ describe("watcher", () => {
       // Only root watcher; ghost was skipped because isSymlink returned true on error
       expect(mockWatch).toHaveBeenCalledTimes(1);
       expect(mockWatch).toHaveBeenCalledWith("/tmp/repo", expect.any(Function));
+      expect(warnSpy).toHaveBeenCalledWith(
+        "[pi-git] lstat failed for",
+        "/tmp/repo/ghost",
+        "ENOENT",
+      );
     });
 
     it("adds non-symlink directories to the queue", async () => {
@@ -359,6 +370,7 @@ describe("watcher", () => {
 
       // Should not throw — outer catch calls stopWatcher
       await expect(startWatcher("/tmp/repo", onRefresh)).resolves.toBeUndefined();
+      expect(warnSpy).toHaveBeenCalledWith("[pi-git] watch failed:", "watch not supported");
     });
   });
 
